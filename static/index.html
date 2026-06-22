@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADS-B Stack Monitor</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f8f8f6; --surface: #ffffff; --surface2: #f1f0ec; --surface3: #e8e7e3;
+    --border: rgba(0,0,0,0.09); --text: #1a1a18; --text2: #6b6b68; --text3: #9b9b98;
+    --ok-bg: #eaf3de; --ok-text: #3b6d11;
+    --err-bg: #fcebeb; --err-text: #a32d2d;
+    --warn-bg: #faeeda; --warn-text: #854f0b;
+    --chk-bg: #f1f0ec; --chk-text: #6b6b68;
+    --blue: #0c447c; --blue-bg: #e6f1fb;
+    --term-bg: #0d1117; --term-text: #e6edf3; --term-dim: #8b949e;
+    --sidebar-w: 340px; --accent: #0c447c;
+    --spark-h: 28px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18; --surface: #242422; --surface2: #2c2c2a; --surface3: #343432;
+      --border: rgba(255,255,255,0.09); --text: #f0efeb; --text2: #a8a8a5; --text3: #6b6b68;
+      --ok-bg: #173404; --ok-text: #c0dd97;
+      --err-bg: #501313; --err-text: #f09595;
+      --warn-bg: #412402; --warn-text: #fac775;
+      --chk-bg: #2c2c2a; --chk-text: #a8a8a5;
+      --blue: #b5d4f4; --blue-bg: #042c53;
+    }
+  }
+  [data-theme="light"] { color-scheme: light; --bg: #f8f8f6; --surface: #ffffff; --surface2: #f1f0ec; --surface3: #e8e7e3; --border: rgba(0,0,0,0.09); --text: #1a1a18; --text2: #6b6b68; --text3: #9b9b98; --ok-bg: #eaf3de; --ok-text: #3b6d11; --err-bg: #fcebeb; --err-text: #a32d2d; --warn-bg: #faeeda; --warn-text: #854f0b; --chk-bg: #f1f0ec; --chk-text: #6b6b68; --blue: #0c447c; --blue-bg: #e6f1fb; --term-bg: #0d1117; --term-text: #e6edf3; --term-dim: #8b949e; }
+  [data-theme="dark"]  { color-scheme: dark;  --bg: #1a1a18; --surface: #242422; --surface2: #2c2c2a; --surface3: #343432; --border: rgba(255,255,255,0.09); --text: #f0efeb; --text2: #a8a8a5; --text3: #6b6b68; --ok-bg: #173404; --ok-text: #c0dd97; --err-bg: #501313; --err-text: #f09595; --warn-bg: #412402; --warn-text: #fac775; --chk-bg: #2c2c2a; --chk-text: #a8a8a5; --blue: #b5d4f4; --blue-bg: #042c53; }
+
+  html, body { height: 100%; background: var(--bg); }
+  body { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; display: flex; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); height: 100vh; overflow-y: auto; overflow-x: hidden; border-right: 0.5px solid var(--border); background: var(--bg); display: flex; flex-direction: column; padding: 1rem; gap: 0.875rem; transition: transform 0.25s; }
+  .sidebar-header { display: flex; align-items: center; justify-content: space-between; }
+  .sidebar-header h1 { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .sidebar-header h1 i { color: var(--text2); font-size: 15px; }
+  .header-actions { display: flex; gap: 6px; align-items: center; }
+  .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: 14px; }
+  .icon-btn:hover { background: var(--surface2); }
+
+  .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .metric { background: var(--surface2); border-radius: 8px; padding: 0.5rem 0.75rem; position: relative; overflow: hidden; }
+  .metric-label { font-size: 10px; color: var(--text2); margin-bottom: 1px; }
+  .metric-value { font-size: 20px; font-weight: 500; color: var(--text); line-height: 1; }
+  .metric-sub { font-size: 10px; color: var(--text3); margin-top: 1px; }
+  .metric-spark { position: absolute; bottom: 0; left: 0; right: 0; height: var(--spark-h); opacity: 0.35; }
+
+  .section-label { font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .cards { display: flex; flex-direction: column; gap: 5px; }
+
+  /* ── Service card ── */
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 10px; padding: 0.5rem 0.75rem; }
+  .card-top { display: flex; align-items: center; justify-content: space-between; }
+  .card-name { font-size: 12px; font-weight: 500; color: var(--text); display: flex; align-items: center; gap: 5px; }
+  .card-name i { font-size: 13px; color: var(--text2); }
+  .card-hint { font-size: 11px; color: var(--text2); margin-top: 3px; }
+  .card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; flex-wrap: wrap; gap: 4px; }
+  .card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .version-tag { font-size: 10px; color: var(--text3); font-family: 'SF Mono','Fira Code',monospace; }
+  .update-badge { font-size: 10px; font-weight: 500; padding: 1px 5px; border-radius: 4px; background: var(--warn-bg); color: var(--warn-text); }
+  .uptime-tag { font-size: 10px; color: var(--text3); }
+  .uptime-pct { font-size: 10px; font-weight: 500; padding: 1px 5px; border-radius: 4px; }
+  .uptime-pct.good  { background: var(--ok-bg);   color: var(--ok-text); }
+  .uptime-pct.warn  { background: var(--warn-bg);  color: var(--warn-text); }
+  .uptime-pct.bad   { background: var(--err-bg);   color: var(--err-text); }
+  .last-seen { font-size: 10px; color: var(--text3); }
+  .last-seen.live { color: var(--ok-text); }
+  .card-actions { display: flex; gap: 4px; }
+
+  .badge { font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+  .badge-ok       { background: var(--ok-bg);  color: var(--ok-text); }
+  .badge-error    { background: var(--err-bg); color: var(--err-text); }
+  .badge-checking { background: var(--chk-bg); color: var(--chk-text); }
+
+  .action-btn { display: flex; align-items: center; gap: 2px; font-size: 10px; padding: 2px 6px; border-radius: 5px; border: 0.5px solid var(--border); background: transparent; color: var(--text3); cursor: pointer; white-space: nowrap; }
+  .action-btn:hover { background: var(--surface2); color: var(--text2); }
+  .action-btn i { font-size: 11px; }
+
+  .ts { font-size: 10px; color: var(--text3); text-align: right; }
+
+  /* ── System stats bar ── */
+  .sys-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .sys-stat { background: var(--surface2); border-radius: 6px; padding: 0.375rem 0.5rem; text-align: center; }
+  .sys-stat-label { font-size: 9px; color: var(--text3); margin-bottom: 1px; }
+  .sys-stat-value { font-size: 13px; font-weight: 500; color: var(--text); }
+  .sys-stat-value.warn { color: var(--warn-text); }
+  .sys-stat-value.bad  { color: var(--err-text); }
+
+  /* ── Signal panel ── */
+  .signal-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 10px; padding: 0.625rem 0.75rem; }
+  .signal-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .signal-label { font-size: 10px; color: var(--text2); width: 40px; flex-shrink: 0; }
+  .signal-bar-wrap { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .signal-bar { height: 100%; border-radius: 3px; transition: width 0.5s; }
+  .signal-bar.rssi  { background: #4ade80; }
+  .signal-bar.snr   { background: #60a5fa; }
+  .signal-bar.noise { background: #f97316; }
+  .signal-val { font-size: 10px; color: var(--text2); width: 32px; text-align: right; font-family: monospace; }
+  .gain-rec { font-size: 11px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; display: flex; align-items: center; gap: 5px; }
+  .gain-rec.ok      { background: var(--ok-bg);   color: var(--ok-text); }
+  .gain-rec.warn    { background: var(--warn-bg);  color: var(--warn-text); }
+  .gain-rec.decrease{ background: var(--warn-bg);  color: var(--warn-text); }
+  .gain-rec.increase{ background: var(--blue-bg);  color: var(--blue); }
+
+  /* ── Main ── */
+  .main { flex: 1; height: 100vh; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+  .main-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.75rem; border-bottom: 0.5px solid var(--border); background: var(--surface); flex-shrink: 0; gap: 8px; }
+  .toolbar-label { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .view-toggle { display: flex; gap: 3px; }
+  .vbtn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .vbtn:hover { background: var(--surface2); }
+  .vbtn.active { background: var(--text); color: var(--bg); border-color: transparent; }
+  .menu-btn { display: none; }
+
+  .timeframe-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+  .pill { font-size: 11px; padding: 3px 7px; border-radius: 5px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; }
+  .pill:hover { background: var(--surface2); }
+  .pill.active { background: var(--text); color: var(--bg); border-color: transparent; }
+
+  .fill-frame { flex: 1; width: 100%; border: none; display: block; }
+
+  /* ── Settings ── */
+  .settings-scroll { flex: 1; overflow-y: auto; }
+  .settings-panel { padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem; }
+  .scard { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; overflow: visible; }
+  .scard-header { padding: 0.75rem 1rem; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; border-bottom: 0.5px solid var(--border); background: var(--surface2); border-radius: 12px 12px 0 0; cursor: pointer; user-select: none; }
+  .scard-header i.icon { color: var(--text2); }
+  .scard-header .chevron { margin-left: auto; color: var(--text3); transition: transform 0.2s; font-size: 14px; }
+  .scard-header.collapsed .chevron { transform: rotate(-90deg); }
+  .scard-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.875rem; }
+  .scard-body.hidden { display: none; }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field-label { font-size: 12px; font-weight: 500; color: var(--text2); }
+  .field-hint { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .field input, .field select { font-size: 13px; padding: 7px 10px; border-radius: 7px; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text); outline: none; width: 100%; }
+  .field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--blue-bg); }
+  .field input[readonly] { opacity: 0.6; cursor: default; }
+  .input-wrap { display: flex; align-items: center; gap: 4px; }
+  .input-wrap input { flex: 1; }
+  .eye-btn { background: none; border: none; cursor: pointer; color: var(--text3); padding: 0 4px; display: flex; align-items: center; }
+
+  .btn { font-size: 12px; padding: 7px 14px; border-radius: 7px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary   { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+  .btn-secondary { background: var(--surface2); color: var(--text2); border: 0.5px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface3); }
+  .btn-danger    { background: var(--err-bg); color: var(--err-text); }
+  .btn-success   { background: var(--ok-bg);  color: var(--ok-text); }
+  .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .toast { font-size: 12px; padding: 5px 12px; border-radius: 6px; display: none; align-items: center; }
+  .toast.ok  { background: var(--ok-bg);  color: var(--ok-text);  display: inline-flex; }
+  .toast.err { background: var(--err-bg); color: var(--err-text); display: inline-flex; }
+
+  /* feeder config */
+  .feeder-config-panel { margin-top: 6px; background: var(--surface2); border-radius: 8px; padding: 0.75rem; display: none; flex-direction: column; gap: 0.75rem; border: 0.5px solid var(--border); }
+  .feeder-config-panel.open { display: flex; }
+  .cfg-btn { font-size: 10px; padding: 2px 7px; border-radius: 5px; border: 0.5px solid var(--border); background: transparent; color: var(--text3); cursor: pointer; display: flex; align-items: center; gap: 3px; }
+  .cfg-btn:hover { background: var(--surface3); }
+  .divider { height: 0.5px; background: var(--border); }
+
+  .feeder-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .feeder-table th { text-align: left; font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 6px 6px; }
+  .feeder-table td { padding: 5px 6px; border-top: 0.5px solid var(--border); vertical-align: middle; }
+  .feeder-table input, .feeder-table select { font-size: 12px; padding: 4px 7px; border-radius: 6px; border: 0.5px solid var(--border); background: var(--surface2); color: var(--text); width: 100%; }
+  .add-row { display: grid; grid-template-columns: 75px 1fr 1fr 1fr 85px auto; gap: 6px; padding: 0.75rem 1rem; border-top: 0.5px solid var(--border); background: var(--surface2); border-radius: 0 0 12px 12px; align-items: end; }
+
+  /* readsb stats grid */
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat-box { background: var(--surface2); border-radius: 8px; padding: 0.5rem 0.75rem; }
+  .stat-box-label { font-size: 10px; color: var(--text2); margin-bottom: 2px; }
+  .stat-box-value { font-size: 16px; font-weight: 500; color: var(--text); }
+  .stat-box-sub { font-size: 10px; color: var(--text3); }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--term-bg); border-radius: 14px; width: 100%; max-width: 820px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.5); }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; border-bottom: 0.5px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+  .modal-title { font-size: 13px; font-weight: 500; color: var(--term-text); display: flex; align-items: center; gap: 8px; }
+  .modal-title i { color: var(--term-dim); }
+  .modal-actions { display: flex; gap: 8px; }
+  .modal-btn { font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid rgba(255,255,255,0.12); background: transparent; color: var(--term-dim); cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .modal-btn:hover { background: rgba(255,255,255,0.07); color: var(--term-text); }
+  .modal-btn.danger:hover { border-color: #f85149; color: #f85149; }
+  .terminal { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; font-family: 'SF Mono','Fira Code','Consolas',monospace; font-size: 12px; line-height: 1.7; color: var(--term-text); }
+  .terminal .log-line { white-space: pre-wrap; word-break: break-all; }
+  .terminal .log-line.dim  { color: var(--term-dim); }
+  .terminal .log-line.err  { color: #f85149; }
+  .terminal .log-line.warn { color: #d29922; }
+  .terminal .log-line.ok   { color: #3fb950; }
+  .status-bar { padding: 0.4rem 1.25rem; font-size: 11px; color: var(--term-dim); border-top: 0.5px solid rgba(255,255,255,0.06); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; flex-shrink: 0; }
+  .status-dot.inactive { background: #6b6b68; }
+
+  /* Compact uptime bars on card */
+  .card-uptime-bars { display: flex; gap: 2px; margin-top: 4px; }
+  .cub { flex: 1; height: 4px; border-radius: 2px; }
+  .cub-up      { background: var(--ok-text); opacity: 0.6; }
+  .cub-down    { background: var(--err-text); opacity: 0.7; }
+  .cub-unknown { background: var(--surface3); }
+
+  /* Alert banner */
+  .alert-banner { background: var(--err-bg); color: var(--err-text); border-radius: 8px; padding: 0.5rem 0.875rem; font-size: 12px; display: none; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .alert-banner.visible { display: flex; }
+  .alert-banner i { font-size: 14px; flex-shrink: 0; }
+  .alert-banner .alert-items { flex: 1; }
+
+  /* Uptime timeline */
+  .uptime-timeline { display: flex; flex-direction: column; gap: 6px; }
+  .utl-row { display: flex; align-items: center; gap: 8px; }
+  .utl-label { font-size: 11px; color: var(--text2); width: 130px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .utl-bars { display: flex; gap: 2px; flex: 1; }
+  .utl-bar { flex: 1; height: 14px; border-radius: 3px; cursor: default; }
+  .utl-bar.up   { background: var(--ok-text); opacity: 0.7; }
+  .utl-bar.down { background: var(--err-text); opacity: 0.7; }
+  .utl-bar.unknown { background: var(--surface3); }
+  .utl-pct { font-size: 10px; color: var(--text3); width: 36px; text-align: right; font-family: monospace; }
+
+  /* Aircraft type donut */
+  .type-wrap { display: flex; align-items: center; gap: 16px; }
+  .type-legend { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+  .type-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
+  .type-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .type-val { margin-left: auto; font-weight: 500; color: var(--text); font-family: monospace; }
+
+  a { color: var(--blue); text-decoration: none; }
+  .spinning { animation: spin 0.8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-msg { background: var(--err-bg); color: var(--err-text); border-radius: 8px; padding: 0.75rem 1rem; font-size: 12px; }
+  .hidden { display: none !important; }
+
+  /* ── Mobile ── */
+  @media (max-width: 700px) {
+    body { flex-direction: column; overflow: auto; }
+    .sidebar { width: 100%; min-width: unset; height: auto; max-height: none; border-right: none; border-bottom: 0.5px solid var(--border); overflow: visible; }
+    .sidebar.collapsed { padding-bottom: 0; gap: 0; }
+    .sidebar.collapsed > *:not(.sidebar-header) { display: none; }
+    .main { height: auto; flex: none; min-height: 70vh; }
+    .menu-btn { display: flex; }
+    .view-toggle .vbtn span { display: none; }
+    .vbtn { padding: 6px 8px; }
+    html, body { height: auto; overflow: auto; }
+    .main-toolbar { flex-wrap: wrap; }
+    .fill-frame { height: 70vh; }
+    .settings-scroll { overflow: visible; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Log Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-terminal-2"></i><span id="modal-title-text">Logs</span></div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="clearTerminal()"><i class="ti ti-eraser"></i> Clear</button>
+        <button class="modal-btn" onclick="scrollToBottom()"><i class="ti ti-arrow-down"></i> Bottom</button>
+        <button class="modal-btn danger" onclick="closeModal()"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div class="terminal" id="terminal"></div>
+    <div class="status-bar">
+      <div class="status-dot inactive" id="status-dot"></div>
+      <span id="status-text">Connecting...</span>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h1><i class="ti ti-radar"></i> ADS-B monitor</h1>
+    <div class="header-actions">
+      <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme"><i class="ti ti-sun-moon"></i></button>
+      <button class="icon-btn" onclick="load()"><i class="ti ti-refresh" id="ri"></i></button>
+      <button class="icon-btn menu-btn" onclick="toggleSidebar()" title="Collapse"><i class="ti ti-layout-sidebar-left-collapse"></i></button>
+    </div>
+  </div>
+
+  <!-- Alert banner -->
+  <div class="alert-banner" id="alert-banner">
+    <i class="ti ti-alert-triangle"></i>
+    <div class="alert-items" id="alert-items"></div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="metric-label">Aircraft</div>
+      <div class="metric-value" id="m-ac">—</div>
+      <div class="metric-sub">seen &lt; 60s</div>
+      <svg class="metric-spark" id="spark-ac" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Msg / sec</div>
+      <div class="metric-value" id="m-msg">—</div>
+      <div class="metric-sub">from readsb</div>
+      <svg class="metric-spark" id="spark-msg" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Max range</div>
+      <div class="metric-value" id="m-rng">—</div>
+      <div class="metric-sub">nautical miles</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Feeders up</div>
+      <div class="metric-value" id="m-feed">—</div>
+      <div class="metric-sub" id="m-feed-sub">of —</div>
+    </div>
+  </div>
+
+  <!-- System stats -->
+  <div class="sys-bar" id="sys-bar">
+    <div class="sys-stat"><div class="sys-stat-label">CPU</div><div class="sys-stat-value" id="sys-cpu">—</div></div>
+    <div class="sys-stat"><div class="sys-stat-label">Temp</div><div class="sys-stat-value" id="sys-temp">—</div></div>
+    <div class="sys-stat"><div class="sys-stat-label">RAM</div><div class="sys-stat-value" id="sys-mem">—</div></div>
+    <div class="sys-stat"><div class="sys-stat-label">Disk</div><div class="sys-stat-value" id="sys-disk">—</div></div>
+  </div>
+
+  <!-- Signal panel -->
+  <div class="signal-panel" id="signal-panel">
+    <div style="font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Airspy signal</div>
+    <div class="signal-row"><span class="signal-label">RSSI</span><div class="signal-bar-wrap"><div class="signal-bar rssi" id="sig-rssi-bar" style="width:0%"></div></div><span class="signal-val" id="sig-rssi">—</span></div>
+    <div class="signal-row"><span class="signal-label">SNR</span><div class="signal-bar-wrap"><div class="signal-bar snr" id="sig-snr-bar" style="width:0%"></div></div><span class="signal-val" id="sig-snr">—</span></div>
+    <div class="signal-row"><span class="signal-label">Noise</span><div class="signal-bar-wrap"><div class="signal-bar noise" id="sig-noise-bar" style="width:0%"></div></div><span class="signal-val" id="sig-noise">—</span></div>
+    <div class="gain-rec hidden" id="gain-rec"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+      <a id="signal-history-link" href="#" target="_blank" style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px;"><i class="ti ti-chart-line" style="font-size:12px"></i> view signal history ↗</a>
+    </div>
+    <button class="action-btn hidden" id="gain-apply-btn" onclick="applyRecommendedGain()" style="margin-top:4px;font-size:11px;padding:4px 8px;">
+      <i class="ti ti-wand"></i> Apply recommended gain
+    </button>
+  </div>
+
+  <div><div class="section-label" style="margin-bottom:.35rem">core services</div><div class="cards" id="core-cards"></div></div>
+  <div><div class="section-label" style="margin-bottom:.35rem">feeders</div><div class="cards" id="feeder-cards"></div></div>
+  <div class="ts" id="ts"></div>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <div class="main-toolbar">
+    <div class="toolbar-label" id="toolbar-label"><i class="ti ti-map-pin"></i> <span>tar1090 live map</span></div>
+    <div class="view-toggle">
+      <button class="vbtn active" id="btn-map"      onclick="showView('map')"><i class="ti ti-map-pin"></i> <span>Map</span></button>
+      <button class="vbtn"        id="btn-graphs"   onclick="showView('graphs')"><i class="ti ti-chart-line"></i> <span>Graphs</span></button>
+      <button class="vbtn"        id="btn-settings" onclick="showView('settings')"><i class="ti ti-settings"></i> <span>Settings</span></button>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div id="view-map" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <iframe class="fill-frame" id="map-frame" src="" title="tar1090 live map"></iframe>
+  </div>
+
+  <!-- Graphs -->
+  <div id="view-graphs" class="hidden" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:.4rem .75rem;border-bottom:.5px solid var(--border);background:var(--surface);flex-shrink:0;display:flex;align-items:center;justify-content:space-between;">
+      <div class="timeframe-pills" id="pills"></div>
+    </div>
+    <iframe class="fill-frame" id="graphs-frame" src="" title="graphs1090"></iframe>
+  </div>
+
+  <!-- Settings -->
+  <div id="view-settings" class="hidden" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="settings-scroll">
+      <div class="settings-panel">
+
+        <!-- Airspy -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> Airspy SDR<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body">
+            <div style="font-size:12px;color:var(--text2);" id="airspy-model-info">Detecting device...</div>
+            <div class="field-row">
+              <div class="field">
+                <div class="field-label">Gain (0–21)</div>
+                <input type="number" id="airspy-gain" min="0" max="21" value="21">
+                <div class="field-hint">Each step ≈ 3 dB. Reduce if overloading.</div>
+              </div>
+              <div class="field">
+                <div class="field-label">Sample Rate &nbsp;<button type="button" style="font-size:10px;padding:1px 7px;border-radius:5px;border:.5px solid var(--border);background:var(--blue-bg);color:var(--blue);cursor:pointer;" onclick="useRecommendedRate()">use recommended</button></div>
+                <select id="airspy-rate">
+                  <option value="6">6 MSPS — Mini (recommended)</option>
+                  <option value="3">3 MSPS — Mini</option>
+                  <option value="12">12 MSPS — R2 (recommended)</option>
+                  <option value="20">20 MSPS — R2 max</option>
+                </select>
+                <div class="field-hint">Mini: 6 or 3 MSPS &nbsp;|&nbsp; R2: 12 or 20 MSPS</div>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">Extra options</div>
+              <input type="text" id="airspy-options" placeholder="-v -f 1 -w 5 -C 95 -E 60">
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveAirspy(event)"><i class="ti ti-device-floppy"></i> Save &amp; restart</button>
+              <span class="toast" id="airspy-toast"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Receiver -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-map-pin icon"></i> Receiver location<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body">
+            <div class="field-row">
+              <div class="field"><div class="field-label">Latitude</div><input type="number" id="recv-lat" step="0.00001"></div>
+              <div class="field"><div class="field-label">Longitude</div><input type="number" id="recv-lon" step="0.00001"></div>
+            </div>
+            <div class="field" style="max-width:180px"><div class="field-label">Max range (nm)</div><input type="number" id="recv-range" min="50" max="800" value="500"></div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveReceiver(event)"><i class="ti ti-device-floppy"></i> Save &amp; restart readsb</button>
+              <span class="toast" id="recv-toast"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Aircraft type breakdown -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-chart-donut icon"></i> Aircraft type breakdown<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body" id="ac-types-body">
+            <div style="font-size:12px;color:var(--text3)">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Uptime history -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-calendar-stats icon"></i> 7-day uptime history<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body" id="uptime-history-body">
+            <div style="font-size:12px;color:var(--text3)">Loading...</div>
+          </div>
+        </div>
+
+        <!-- readsb stats -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-broadcast icon"></i> readsb statistics<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body" id="readsb-stats-body">
+            <div style="font-size:12px;color:var(--text3)">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Feeder connection settings -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-plug icon"></i> Feeder connection settings<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body" id="feeder-settings-body">
+            <div style="font-size:12px;color:var(--text3)">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Feeder list -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-list icon"></i> Feeder list (sidebar entries)<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body" style="padding:0;gap:0;">
+            <table class="feeder-table">
+              <thead><tr>
+                <th style="width:75px;padding-left:1rem">Type</th>
+                <th>Service / Container</th><th>Label</th><th>Hint</th><th style="width:90px">Icon</th><th style="width:36px"></th>
+              </tr></thead>
+              <tbody id="feeder-rows"></tbody>
+            </table>
+            <div class="add-row">
+              <div class="field"><div class="field-label" style="font-size:10px">Type</div><select id="new-kind"><option value="service">service</option><option value="docker">docker</option></select></div>
+              <div class="field"><div class="field-label" style="font-size:10px">Service/Container</div><input type="text" id="new-key" placeholder="fr24feed"></div>
+              <div class="field"><div class="field-label" style="font-size:10px">Label</div><input type="text" id="new-label" placeholder="FlightRadar24"></div>
+              <div class="field"><div class="field-label" style="font-size:10px">Hint</div><input type="text" id="new-hint" placeholder="Beast in ← :30005"></div>
+              <div class="field"><div class="field-label" style="font-size:10px">Icon</div><input type="text" id="new-icon" placeholder="plane"></div>
+              <button class="btn btn-success" onclick="addFeederRow()" style="padding:7px 10px;align-self:flex-end"><i class="ti ti-plus"></i></button>
+            </div>
+            <div style="padding:.75rem 1rem;border-top:.5px solid var(--border);display:flex;gap:8px;align-items:center;">
+              <button class="btn btn-primary" onclick="saveFeeders(event)"><i class="ti ti-device-floppy"></i> Save feeder list</button>
+              <span class="toast" id="feeders-toast"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Service control -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-refresh icon"></i> Service control<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body">
+            <div class="btn-row" id="restart-btns"></div>
+            <div class="btn-row" style="margin-top:4px">
+              <button class="btn btn-secondary" onclick="refreshVersions(event)"><i class="ti ti-refresh"></i> Check for updates now</button>
+              <button class="btn btn-secondary" onclick="downloadBackup()"><i class="ti ti-download"></i> Download config backup</button>
+              <span class="toast" id="versions-toast"></span>
+            </div>
+            <span class="toast" id="restart-toast"></span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Theme ──────────────────────────────────────────────────────────────────
+let theme = localStorage.getItem('theme') || 'auto';
+function applyTheme(t) {
+  if (t === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+}
+applyTheme(theme);
+function toggleTheme() {
+  theme = theme === 'auto' ? 'dark' : theme === 'dark' ? 'light' : 'auto';
+  localStorage.setItem('theme', theme);
+  applyTheme(theme);
+  document.getElementById('theme-btn').querySelector('i').className =
+    theme === 'dark' ? 'ti ti-sun' : theme === 'light' ? 'ti ti-moon' : 'ti ti-sun-moon';
+}
+
+// ── Mobile sidebar ─────────────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('collapsed');
+}
+
+// ── Sparkline ──────────────────────────────────────────────────────────────
+function drawSparkline(svgId, data, color) {
+  const svg = document.getElementById(svgId);
+  if (!svg || data.length < 2) return;
+  const w = 100, h = 28;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / range) * h * 0.85 - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+
+// ── Status cards ───────────────────────────────────────────────────────────
+const CORE_KEYS = ['airspy_adsb','readsb','tar1090'];
+
+function uptimePctClass(pct) {
+  if (pct === null) return '';
+  if (pct >= 99) return 'good';
+  if (pct >= 95) return 'warn';
+  return 'bad';
+}
+
+function makeCard(f) {
+  const bc = f.status==='ok'?'badge-ok':f.status==='error'?'badge-error':'badge-checking';
+  const bt = f.status==='ok'?'running':f.status==='error'?'stopped':'checking';
+  let hint = f.hint||'';
+  if (f.key==='tar1090') hint='Live map embedded';
+  let ver='', uptime='', lastSeen='';
+  if (f.version) {
+    const vs = f.version.startsWith('v')?f.version:'v'+f.version;
+    const upd = f.outdated?`<span class="update-badge" title="Latest: ${f.latest||''}">⬆ update</span>`:'';
+    ver=`<span class="version-tag">${vs}</span>${upd}`;
+  } else if (f.version === null) {
+    ver=`<span class="version-tag" style="color:var(--text3)">checking...</span>`;
+  }
+  if (f.uptime_str) uptime=`<span class="uptime-tag" title="Running for"><i class="ti ti-clock" style="font-size:10px"></i> ${f.uptime_str}</span>`;
+  if (f.uptime_pct !== null && f.uptime_pct !== undefined) {
+    const cls = uptimePctClass(f.uptime_pct);
+    uptime += `<span class="uptime-pct ${cls}" title="7-day uptime">${f.uptime_pct}%</span>`;
+  }
+  if (f.last_seen) {
+    const live = f.last_seen === 'live';
+    lastSeen = `<span class="last-seen${live?' live':''}" title="Last feed activity">${live?'● live':f.last_seen}</span>`;
+  }
+  // Compact uptime bars (7 days)
+  let uptimeBars = '';
+  if (f.uptime_bars && f.uptime_bars.length) {
+    const barHtml = f.uptime_bars.map((pct, i) => {
+      const cls = pct === null ? 'cub-unknown' : pct >= 95 ? 'cub-up' : 'cub-down';
+      const day = new Date(Date.now() - (6-i)*86400000).toLocaleDateString('en-US',{month:'numeric',day:'numeric'});
+      const tip = pct !== null ? `${day}: ${pct}% uptime` : `${day}: no data`;
+      return `<div class="cub ${cls}" title="${tip}"></div>`;
+    }).join('');
+    uptimeBars = `<div class="card-uptime-bars">${barHtml}</div>`;
+  }
+
+  return `<div class="card">
+    <div class="card-top"><span class="card-name"><i class="ti ti-${f.icon||'plug'}"></i>${f.label}</span><span class="badge ${bc}">${bt}</span></div>
+    <div class="card-hint">${hint}</div>
+    <div class="card-footer">
+      <div class="card-meta">${ver}${uptime}${lastSeen}</div>
+      <div class="card-actions">
+        <button class="action-btn" onclick="openLogs('${f.key}','${f.label}')"><i class="ti ti-terminal-2"></i> logs</button>
+      </div>
+    </div>
+    ${uptimeBars}
+  </div>`;
+}
+
+let sparkAcData=[], sparkMsgData=[];
+
+async function load() {
+  document.getElementById('ri').classList.add('spinning');
+  try {
+    const d = await fetch('/api/status').then(r=>r.json());
+    document.getElementById('m-ac').textContent  = d.metrics.aircraft;
+    document.getElementById('m-msg').textContent = d.metrics.msg_rate;
+    document.getElementById('m-rng').textContent = d.metrics.max_range_nm||'—';
+    const core = d.feeders.filter(f=> CORE_KEYS.includes(f.key));
+    const feed = d.feeders.filter(f=>!CORE_KEYS.includes(f.key));
+    document.getElementById('core-cards').innerHTML   = core.map(makeCard).join('');
+    document.getElementById('feeder-cards').innerHTML = feed.map(makeCard).join('');
+    document.getElementById('m-feed').textContent     = feed.filter(f=>f.status==='ok').length;
+    document.getElementById('m-feed-sub').textContent = `of ${feed.length}`;
+    buildRestartButtons(d.feeders);
+  } catch {
+    document.getElementById('core-cards').innerHTML='<div class="error-msg">Cannot reach /api/status</div>';
+  }
+  document.getElementById('ts').textContent='Updated '+new Date().toLocaleTimeString();
+  document.getElementById('ri').classList.remove('spinning');
+
+  // Alerts
+  checkAlerts();
+  // Sparklines
+  loadSparklines();
+  // System stats
+  loadSystemStats();
+  // Signal stats
+  loadSignalStats();
+}
+
+async function loadSparklines() {
+  try {
+    const hist = await fetch('/api/stats/history?minutes=60').then(r=>r.json());
+    sparkAcData  = hist.map(h=>h.aircraft);
+    sparkMsgData = hist.map(h=>h.msg_rate);
+    drawSparkline('spark-ac',  sparkAcData,  '#4ade80');
+    drawSparkline('spark-msg', sparkMsgData, '#60a5fa');
+  } catch {}
+}
+
+async function loadSystemStats() {
+  try {
+    const s = await fetch('/api/stats/system').then(r=>r.json());
+    const cpuEl  = document.getElementById('sys-cpu');
+    const tempEl = document.getElementById('sys-temp');
+    const memEl  = document.getElementById('sys-mem');
+    const diskEl = document.getElementById('sys-disk');
+    cpuEl.textContent  = s.cpu_pct!==undefined  ? s.cpu_pct+'%'  : '—';
+    tempEl.textContent = s.cpu_temp!==undefined ? s.cpu_temp+'°' : '—';
+    memEl.textContent  = s.mem_pct!==undefined   ? s.mem_pct+'%'  : '—';
+    diskEl.textContent = s.disk_pct!==undefined  ? s.disk_pct+'%' : '—';
+    cpuEl.className  = 'sys-stat-value' + (s.cpu_pct>80?' bad':s.cpu_pct>60?' warn':'');
+    tempEl.className = 'sys-stat-value' + (s.cpu_temp>75?' bad':s.cpu_temp>65?' warn':'');
+    memEl.className  = 'sys-stat-value' + (s.mem_pct>85?' bad':s.mem_pct>70?' warn':'');
+    diskEl.className = 'sys-stat-value' + (s.disk_pct>90?' bad':s.disk_pct>75?' warn':'');
+  } catch {}
+}
+
+async function loadSignalStats() {
+  try {
+    const d = await fetch('/api/stats/airspy').then(r=>r.json());
+    const s = d.stats;
+    if (!s || !s.rssi) return;
+    const rssiMed  = s.rssi.median;
+    const snrMed   = s.snr.median;
+    const noiseMed = s.noise.median;
+    document.getElementById('sig-rssi').textContent  = rssiMed.toFixed(0)+' dB';
+    document.getElementById('sig-snr').textContent   = snrMed.toFixed(1)+' dB';
+    document.getElementById('sig-noise').textContent = noiseMed.toFixed(0)+' dB';
+    // Bars: RSSI 0-90dB range, SNR 0-30dB, noise 0-70dB
+    document.getElementById('sig-rssi-bar').style.width  = Math.min(100, rssiMed/90*100)+'%';
+    document.getElementById('sig-snr-bar').style.width   = Math.min(100, snrMed/30*100)+'%';
+    document.getElementById('sig-noise-bar').style.width = Math.min(100, noiseMed/70*100)+'%';
+    // Gain recommendation
+    const rec = d.recommendation;
+    if (rec) {
+      const el  = document.getElementById('gain-rec');
+      const btn = document.getElementById('gain-apply-btn');
+      el.className = `gain-rec ${rec.action}`;
+      el.innerHTML = `<i class="ti ti-${rec.action==='ok'?'check':'alert-triangle'}"></i> ${rec.reason}`;
+      el.classList.remove('hidden');
+      if (rec.action !== 'ok') {
+        // Extract suggested gain from reason string e.g. "try gain 19"
+        const m = rec.reason.match(/try gain (\d+)/);
+        if (m) {
+          _gainRecommendedValue = parseInt(m[1]);
+          btn.classList.remove('hidden');
+          btn.textContent = '';
+          btn.innerHTML = `<i class="ti ti-wand"></i> Apply: set gain to ${_gainRecommendedValue}`;
+        }
+      } else {
+        _gainRecommendedValue = null;
+        btn.classList.add('hidden');
+      }
+    }
+  } catch {}
+}
+
+// ── Alert banner ───────────────────────────────────────────────────────────
+async function checkAlerts() {
+  try {
+    const d = await fetch('/api/alerts').then(r=>r.json());
+    const banner = document.getElementById('alert-banner');
+    const items  = document.getElementById('alert-items');
+    if (d.any_down) {
+      items.textContent = 'Service down: ' + d.alerts.map(a=>`${a.label} (${a.detail})`).join(', ');
+      banner.classList.add('visible');
+    } else {
+      banner.classList.remove('visible');
+    }
+  } catch {}
+}
+
+// ── Gain apply button ──────────────────────────────────────────────────────
+let _gainRecommendedValue = null;
+
+async function applyRecommendedGain() {
+  if (!_gainRecommendedValue) return;
+  const btn = document.getElementById('gain-apply-btn');
+  btn.disabled = true;
+  try {
+    // Read current settings first
+    const cur = await fetch('/api/settings/airspy').then(r=>r.json());
+    if (!cur.ok) { btn.disabled=false; return; }
+    const payload = { ...cur.settings, gain: String(_gainRecommendedValue) };
+    const r = await fetch('/api/settings/airspy', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r=>r.json());
+    if (r.ok) {
+      document.getElementById('gain-rec').textContent = '✓ Gain updated — restarting airspy_adsb...';
+      setTimeout(loadSignalStats, 5000);
+    }
+  } catch {}
+  btn.disabled = false;
+}
+
+// ── View toggle ────────────────────────────────────────────────────────────
+const VIEWS = ['map','graphs','settings'];
+const TLABELS = {
+  map:      '<i class="ti ti-map-pin"></i> <span>tar1090 live map</span>',
+  graphs:   '<i class="ti ti-chart-line"></i> <span>Performance graphs</span>',
+  settings: '<i class="ti ti-settings"></i> <span>Settings</span>',
+};
+function showView(v) {
+  if (v==='settings' && IS_READONLY) return;
+  VIEWS.forEach(id => document.getElementById('view-'+id).classList.toggle('hidden', id!==v));
+  document.querySelectorAll('.vbtn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+v).classList.add('active');
+  document.getElementById('toolbar-label').innerHTML=TLABELS[v]||'';
+  if (v==='settings') loadSettings();
+}
+
+function toggleCard(header) {
+  header.classList.toggle('collapsed');
+  header.nextElementSibling.classList.toggle('hidden');
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+function showToast(id, ok, msg) {
+  const el=document.getElementById(id);
+  if (!el) return;
+  el.textContent=msg; el.className='toast '+(ok?'ok':'err');
+  setTimeout(()=>{el.className='toast';},3500);
+}
+
+let settingsLoaded=false;
+async function loadSettings() {
+  if (settingsLoaded) return;
+  settingsLoaded=true;
+  // Airspy
+  try {
+    const r=await fetch('/api/settings/airspy').then(r=>r.json());
+    if(r.ok){
+      document.getElementById('airspy-gain').value=r.settings.gain;
+      document.getElementById('airspy-rate').value=r.settings.sample_rate;
+      document.getElementById('airspy-options').value=r.settings.options;
+      const model=r.settings.model||'unknown';
+      const rec=r.settings.recommended_sample_rate;
+      if(rec) _recommendedRate=rec;
+      const mismatch=rec&&r.settings.sample_rate!==rec;
+      document.getElementById('airspy-model-info').innerHTML=
+        `Detected: <strong>Airspy ${model.toUpperCase()}</strong>`+
+        (mismatch?` &nbsp;<span style="color:var(--err-text);font-size:11px">⚠ recommended rate for ${model} is ${rec} MSPS</span>`:'');
+    }
+  } catch{}
+  // Receiver
+  try {
+    const r=await fetch('/api/settings/receiver').then(r=>r.json());
+    if(r.ok){document.getElementById('recv-lat').value=r.settings.lat;document.getElementById('recv-lon').value=r.settings.lon;document.getElementById('recv-range').value=r.settings.max_range;}
+  } catch{}
+  // Aircraft types
+  await loadAircraftTypes();
+  // Uptime history
+  await loadUptimeHistory();
+  // readsb stats
+  await loadReadsbStats();
+  // Feeder configs
+  await loadFeederConfigs();
+  // Feeder list
+  await loadFeedersTable();
+}
+
+async function loadAircraftTypes() {
+  const body = document.getElementById('ac-types-body');
+  try {
+    const d = await fetch('/api/stats/aircraft_types').then(r=>r.json());
+    const total = d.adsb + d.mlat + d.mode_s + d.tisb + d.other || 1;
+    const colors = ['#4ade80','#60a5fa','#f97316','#a78bfa','#94a3b8'];
+    const types = [
+      {label:'ADS-B', val:d.adsb, color:colors[0]},
+      {label:'Mode S', val:d.mode_s, color:colors[2]},
+      {label:'MLAT', val:d.mlat, color:colors[1]},
+      {label:'TIS-B', val:d.tisb, color:colors[3]},
+      {label:'Other', val:d.other, color:colors[4]},
+    ].filter(t=>t.val>0);
+
+    // Build SVG donut
+    const r=40, cx=50, cy=50, stroke=14;
+    const circ = 2*Math.PI*r;
+    let offset=0;
+    let arcs='';
+    for(const t of types){
+      const pct=t.val/total;
+      const dash=circ*pct;
+      arcs+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${t.color}" stroke-width="${stroke}" stroke-dasharray="${dash} ${circ-dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"><title>${t.label}: ${t.val}</title></circle>`;
+      offset+=dash;
+    }
+    const svg=`<svg viewBox="0 0 100 100" width="80" height="80">${arcs}<text x="50" y="47" text-anchor="middle" font-size="11" fill="var(--text)" font-weight="500">${total}</text><text x="50" y="59" text-anchor="middle" font-size="8" fill="var(--text3)">total</text></svg>`;
+    const legend=types.map(t=>`<div class="type-row"><div class="type-dot" style="background:${t.color}"></div>${t.label}<span class="type-val">${t.val} <span style="color:var(--text3);font-weight:400">(${Math.round(t.val/total*100)}%)</span></span></div>`).join('');
+    body.innerHTML=`<div class="type-wrap">${svg}<div class="type-legend">${legend}</div></div>`;
+  } catch{body.innerHTML='<div style="font-size:12px;color:var(--text3)">Could not load</div>';}
+}
+
+async function loadUptimeHistory() {
+  const body = document.getElementById('uptime-history-body');
+  try {
+    const d = await fetch('/api/stats/uptime/history').then(r=>r.json());
+    const rows = Object.entries(d).map(([key, days]) => {
+      const bars = days.map(day => {
+        const cls = day.pct === null ? 'unknown' : day.pct >= 99 ? 'up' : day.pct >= 90 ? 'up' : 'down';
+        const title = day.pct !== null ? `${day.day}: ${day.pct}%` : `${day.day}: no data`;
+        return `<div class="utl-bar ${cls}" title="${title}"></div>`;
+      }).join('');
+      const avg = days.filter(d=>d.pct!==null);
+      const avgPct = avg.length ? Math.round(avg.reduce((s,d)=>s+d.pct,0)/avg.length*10)/10 : null;
+      const pctStr = avgPct!==null ? `${avgPct}%` : '—';
+      // Get label from feeders
+      const label = key.replace(/-/g,' ');
+      return `<div class="utl-row">
+        <div class="utl-label" title="${key}">${label}</div>
+        <div class="utl-bars">${bars}</div>
+        <div class="utl-pct">${pctStr}</div>
+      </div>`;
+    }).join('');
+    // Day labels
+    const firstDays = Object.values(d)[0] || [];
+    const dayLabels = firstDays.map(d=>`<div style="flex:1;text-align:center;font-size:9px;color:var(--text3)">${d.day}</div>`).join('');
+    body.innerHTML=`
+      <div style="display:flex;margin-left:138px;gap:2px;margin-bottom:4px;">${dayLabels}</div>
+      <div class="uptime-timeline">${rows}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px;display:flex;gap:12px;">
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--ok-text);opacity:.7;margin-right:3px"></span>Up</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--err-text);opacity:.7;margin-right:3px"></span>Down</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--surface3);margin-right:3px"></span>No data</span>
+      </div>`;
+  } catch{body.innerHTML='<div style="font-size:12px;color:var(--text3)">Could not load uptime history</div>';}
+}
+
+function downloadBackup() {
+  window.location.href = '/api/backup';
+}
+
+async function loadReadsbStats() {
+  const body=document.getElementById('readsb-stats-body');
+  try {
+    const s=await fetch('/api/stats/readsb').then(r=>r.json());
+    body.innerHTML=`<div class="stats-grid">
+      <div class="stat-box"><div class="stat-box-label">Msgs last min</div><div class="stat-box-value">${s.msgs_last_min?.toLocaleString()||'—'}</div></div>
+      <div class="stat-box"><div class="stat-box-label">Positions/min</div><div class="stat-box-value">${s.positions_last_min?.toLocaleString()||'—'}</div></div>
+      <div class="stat-box"><div class="stat-box-label">ADS-B %</div><div class="stat-box-value">${s.adsb_pct||'—'}%</div></div>
+      <div class="stat-box"><div class="stat-box-label">Total msgs</div><div class="stat-box-value">${(s.msgs_total/1e6)?.toFixed(1)||'—'}M</div></div>
+      <div class="stat-box"><div class="stat-box-label">Total positions</div><div class="stat-box-value">${(s.positions_total/1e6)?.toFixed(1)||'—'}M</div></div>
+      <div class="stat-box"><div class="stat-box-label">Uptime</div><div class="stat-box-value">${s.uptime_hrs||'—'}h</div></div>
+    </div>`;
+  } catch{body.innerHTML='<div style="font-size:12px;color:var(--text3)">Could not load stats</div>';}
+}
+
+let _recommendedRate='6';
+function useRecommendedRate(){document.getElementById('airspy-rate').value=_recommendedRate;}
+
+async function saveAirspy(e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  try{const r=await fetch('/api/settings/airspy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gain:document.getElementById('airspy-gain').value,sample_rate:document.getElementById('airspy-rate').value,options:document.getElementById('airspy-options').value})}).then(r=>r.json());
+  showToast('airspy-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}catch(ex){showToast('airspy-toast',false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+async function saveReceiver(e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  try{const r=await fetch('/api/settings/receiver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:document.getElementById('recv-lat').value,lon:document.getElementById('recv-lon').value,max_range:document.getElementById('recv-range').value})}).then(r=>r.json());
+  showToast('recv-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}catch(ex){showToast('recv-toast',false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+async function refreshVersions(e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  showToast('versions-toast',true,'Checking...');
+  try{const r=await fetch('/api/versions/refresh',{method:'POST'}).then(r=>r.json());
+  showToast('versions-toast',r.ok,r.ok?'✓ Versions updated':'✗ Error');
+  settingsLoaded=false; await loadSettings();}catch(ex){showToast('versions-toast',false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+// ── Feeder connection configs ──────────────────────────────────────────────
+async function loadFeederConfigs(){
+  const body=document.getElementById('feeder-settings-body');
+  let feeders=[];
+  try{const d=await fetch('/api/status').then(r=>r.json());feeders=d.feeders;}catch{body.innerHTML='<div class="error-msg">Could not load feeders</div>';return;}
+  const html=[];
+  for(const f of feeders){
+    let fields=null,settings={},label=f.label;
+    try{const r=await fetch(`/api/settings/feeder/${encodeURIComponent(f.key)}`).then(r=>r.json());
+    if(r.ok){fields=r.fields;settings=r.settings;label=r.label;}}catch{}
+    const panelId=`fcfg-${f.key}`,toastId=`fcfg-toast-${f.key}`;
+    if(!fields){
+      html.push(`<div><div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:12px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:6px;"><i class="ti ti-${f.icon||'plug'}" style="font-size:13px"></i>${f.label}</div><span style="font-size:11px;color:var(--text3)">No config available</span></div></div>`);
+    }else{
+      html.push(`<div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div style="font-size:12px;font-weight:500;color:var(--text);display:flex;align-items:center;gap:6px;"><i class="ti ti-${f.icon||'plug'}" style="font-size:13px;color:var(--text2)"></i>${label}</div>
+          <button class="cfg-btn" onclick="toggleFeederCfg('${panelId}',this)"><i class="ti ti-settings"></i> configure</button>
+        </div>
+        <div class="feeder-config-panel" id="${panelId}">
+          ${renderFeederFields(f.key,fields,settings)}
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="saveFeederCfg('${f.key}','${panelId}','${toastId}',event)"><i class="ti ti-device-floppy"></i> Save &amp; restart</button>
+            <span class="toast" id="${toastId}"></span>
+          </div>
+        </div>
+      </div>`);
+    }
+    if(f!==feeders[feeders.length-1])html.push('<div class="divider"></div>');
+  }
+  body.innerHTML=html.join('');
+}
+
+function renderFeederFields(key,fields,settings){
+  let html='',i=0;
+  while(i<fields.length){
+    const f1=fields[i],f2=fields[i+1];
+    if(f2&&!f1.readonly&&!f2.readonly){html+=`<div class="field-row">${renderField(key,f1,settings[f1.key]||'')}${renderField(key,f2,settings[f2.key]||'')}</div>`;i+=2;}
+    else{html+=renderField(key,f1,settings[f1.key]||'');i++;}
+  }
+  return html;
+}
+
+function renderField(key,f,value){
+  const fid=`fcfg-${key}-${f.key}`,ro=f.readonly?'readonly':'';
+  const hint=f.readonly?'<div class="field-hint">Read-only</div>':'';
+  if(f.type==='password')return`<div class="field"><div class="field-label">${f.label}</div><div class="input-wrap"><input type="password" id="${fid}" value="${esc(value)}" ${ro}><button class="eye-btn" onclick="toggleReveal('${fid}',this)"><i class="ti ti-eye"></i></button></div>${hint}</div>`;
+  if(f.type==='select'){const opts=(f.options||[]).map(o=>`<option value="${o}"${value===o?' selected':''}>${o}</option>`).join('');return`<div class="field"><div class="field-label">${f.label}</div><select id="${fid}">${opts}</select>${hint}</div>`;}
+  return`<div class="field"><div class="field-label">${f.label}</div><input type="text" id="${fid}" value="${esc(value)}" ${ro}>${hint}</div>`;
+}
+
+function toggleReveal(inputId,btn){const inp=document.getElementById(inputId);const showing=inp.type==='text';inp.type=showing?'password':'text';btn.querySelector('i').className=showing?'ti ti-eye':'ti ti-eye-off';}
+function toggleFeederCfg(panelId,btn){const panel=document.getElementById(panelId);const open=panel.classList.toggle('open');btn.innerHTML=open?'<i class="ti ti-chevron-up"></i> collapse':'<i class="ti ti-settings"></i> configure';}
+
+async function saveFeederCfg(key,panelId,toastId,e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  const panel=document.getElementById(panelId);
+  const inputs=panel.querySelectorAll('input:not([readonly]),select');
+  const data={};
+  inputs.forEach(inp=>{const parts=inp.id.split('-');const fkey=parts.slice(2).join('-');if(fkey)data[fkey]=inp.value;});
+  try{const r=await fetch(`/api/settings/feeder/${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json());
+  showToast(toastId,r.ok,r.ok?`✓ ${r.message||'Saved'}`:`✗ ${r.error||'Error'}`);}catch(ex){showToast(toastId,false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+// ── Feeder list table ──────────────────────────────────────────────────────
+let feederData=[];
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+async function loadFeedersTable(){
+  try{const r=await fetch('/api/settings/feeders').then(r=>r.json());feederData=r.feeders;renderFeedersTable();}catch{}
+}
+function renderFeedersTable(){
+  document.getElementById('feeder-rows').innerHTML=feederData.map((f,i)=>`<tr>
+    <td style="padding-left:1rem"><select onchange="feederData[${i}].kind=this.value"><option value="service"${f.kind==='service'?' selected':''}>service</option><option value="docker"${f.kind==='docker'?' selected':''}>docker</option></select></td>
+    <td><input type="text" value="${esc(f.key)}"   onchange="feederData[${i}].key=this.value"></td>
+    <td><input type="text" value="${esc(f.label)}" onchange="feederData[${i}].label=this.value"></td>
+    <td><input type="text" value="${esc(f.hint)}"  onchange="feederData[${i}].hint=this.value"></td>
+    <td><input type="text" value="${esc(f.icon)}"  onchange="feederData[${i}].icon=this.value" placeholder="plug"></td>
+    <td><button class="btn btn-danger" style="padding:3px 7px" onclick="removeFeeder(${i})"><i class="ti ti-trash"></i></button></td>
+  </tr>`).join('');
+}
+function removeFeeder(i){feederData.splice(i,1);renderFeedersTable();}
+function addFeederRow(){
+  const key=document.getElementById('new-key').value.trim();
+  if(!key){showToast('feeders-toast',false,'✗ Service name required');return;}
+  feederData.push({key,kind:document.getElementById('new-kind').value,label:document.getElementById('new-label').value||key,hint:document.getElementById('new-hint').value,icon:document.getElementById('new-icon').value||'plug'});
+  renderFeedersTable();['new-key','new-label','new-hint','new-icon'].forEach(id=>document.getElementById(id).value='');
+}
+async function saveFeeders(e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  try{const r=await fetch('/api/settings/feeders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({feeders:feederData})}).then(r=>r.json());
+  showToast('feeders-toast',r.ok,r.ok?'✓ Saved':'✗ '+r.error);if(r.ok)load();}catch(ex){showToast('feeders-toast',false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+// ── Service restart ────────────────────────────────────────────────────────
+function buildRestartButtons(feeders){
+  const c=document.getElementById('restart-btns');
+  if(c.children.length>0)return;
+  c.innerHTML=feeders.map(f=>`<button class="btn btn-secondary" onclick="restartService('${f.key}','${f.label}',this)"><i class="ti ti-refresh"></i> ${f.label}</button>`).join('');
+}
+async function restartService(key,label,btn){
+  btn.disabled=true;
+  try{const r=await fetch(`/api/service/${encodeURIComponent(key)}/restart`,{method:'POST'}).then(r=>r.json());
+  showToast('restart-toast',r.ok,r.ok?`✓ ${label} restarted`:`✗ ${r.error}`);}catch(ex){showToast('restart-toast',false,'✗ '+ex.message);}
+  setTimeout(()=>{btn.disabled=false;},3000);
+}
+
+// ── Log modal ──────────────────────────────────────────────────────────────
+let activeSSE=null,autoScroll=true;
+function classifyLine(l){const s=l.toLowerCase();if(/error|fatal|failed|failure|crit/.test(s))return 'err';if(/warn|warning/.test(s))return 'warn';if(/started|success|running|active|connected|ok/.test(s))return 'ok';if(/^\s*$/.test(l))return 'dim';return '';}
+function appendLine(text){const term=document.getElementById('terminal');const div=document.createElement('div');div.className='log-line '+classifyLine(text);div.textContent=text;term.appendChild(div);while(term.children.length>500)term.removeChild(term.firstChild);if(autoScroll)term.scrollTop=term.scrollHeight;}
+function openLogs(key,label){closeModal();document.getElementById('modal-title-text').textContent=label+' — logs';document.getElementById('terminal').innerHTML='';document.getElementById('status-text').textContent='Connecting...';document.getElementById('status-dot').className='status-dot inactive';document.getElementById('modal').classList.add('open');autoScroll=true;const term=document.getElementById('terminal');term.onscroll=()=>{autoScroll=term.scrollTop+term.clientHeight>=term.scrollHeight-20;};const es=new EventSource(`/api/logs/${encodeURIComponent(key)}`);activeSSE=es;es.onopen=()=>{document.getElementById('status-dot').className='status-dot';document.getElementById('status-text').textContent=`Streaming: ${label}`;};es.onmessage=e=>{try{appendLine(JSON.parse(e.data));}catch{appendLine(e.data);}};es.onerror=()=>{document.getElementById('status-dot').className='status-dot inactive';document.getElementById('status-text').textContent='Stream closed';es.close();};}
+function closeModal(){if(activeSSE){activeSSE.close();activeSSE=null;}document.getElementById('modal').classList.remove('open');}
+function closeModalOnOverlay(e){if(e.target===document.getElementById('modal'))closeModal();}
+function clearTerminal(){document.getElementById('terminal').innerHTML='';}
+function scrollToBottom(){const t=document.getElementById('terminal');t.scrollTop=t.scrollHeight;autoScroll=true;}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+// ── Graphs ─────────────────────────────────────────────────────────────────
+const TIMEFRAMES=['2h','8h','24h','48h','7days','14days','30days'];
+let activeTimeframe='24h';
+function renderPills(){document.getElementById('pills').innerHTML=TIMEFRAMES.map(tf=>`<button class="pill${tf===activeTimeframe?' active':''}" onclick="setTimeframe('${tf}')">${tf}</button>`).join('');}
+function setTimeframe(tf){activeTimeframe=tf;renderPills();document.getElementById('graphs-frame').src=`${GRAPHS1090_URL}/?timeframe=${tf}`;}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+let TAR1090_URL='',GRAPHS1090_URL='',GRAPHS1090_AIRSPY='',IS_READONLY=false;
+
+async function init(){
+  try{const m=await fetch('/api/mode').then(r=>r.json());IS_READONLY=m.readonly;if(IS_READONLY)document.getElementById('btn-settings').style.display='none';}catch{}
+  try{const cfg=await fetch('/api/ui-config').then(r=>r.json());TAR1090_URL=cfg.tar1090_url||`http://${location.hostname}:8504`;GRAPHS1090_URL=cfg.graphs1090_url||`http://${location.hostname}/graphs1090`;GRAPHS1090_AIRSPY=cfg.graphs1090_airspy||GRAPHS1090_URL;}
+  catch{TAR1090_URL=`http://${location.hostname}:8504`;GRAPHS1090_URL=`http://${location.hostname}/graphs1090`;}
+  document.getElementById('map-frame').src=TAR1090_URL;
+  const sigLink = document.getElementById('signal-history-link');
+  if (sigLink) sigLink.href = GRAPHS1090_AIRSPY;
+  document.getElementById('graphs-frame').src=`${GRAPHS1090_URL}/?timeframe=${activeTimeframe}`;
+  renderPills();load();setInterval(load,30000);
+}
+
+init();
+</script>
+</body>
+</html>
