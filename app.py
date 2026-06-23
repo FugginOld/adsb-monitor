@@ -101,6 +101,105 @@ class FakeHost:
 
 HOST = LinuxHost()
 
+# ── Init system adapter ────────────────────────────────────────────────────
+# Abstracts systemctl (systemd) vs rc-service (OpenRC) vs unknown.
+# Swap INIT in tests via monkeypatch or the fake_init fixture.
+
+class InitAdapter:
+    """Base: status/action/running_since for a named OS service."""
+    def status(self, service):
+        raise NotImplementedError
+    def action(self, service, act):
+        raise NotImplementedError
+    def running_since(self, service):
+        raise NotImplementedError
+
+class SystemdAdapter(InitAdapter):
+    def __init__(self, host):
+        self._host = host
+    def status(self, service):
+        r = self._host.run(['systemctl', 'is-active', service], timeout=3)
+        state = r.out.strip()
+        return ('ok' if state == 'active' else 'error'), state
+    def action(self, service, act):
+        r = self._host.run(['systemctl', act, service], timeout=10)
+        return r.ok, r.out + r.err
+    def running_since(self, service):
+        r = self._host.run(
+            ['systemctl', 'show', service, '--property=ActiveEnterTimestamp'], timeout=3)
+        line = r.out.strip()
+        if '=' not in line:
+            return None
+        ts_str = line.split('=', 1)[1].strip()
+        if not ts_str or ts_str == 'n/a':
+            return None
+        for fmt in ['%a %Y-%m-%d %H:%M:%S %Z', '%a %Y-%m-%d %H:%M:%S UTC']:
+            try:
+                dt = datetime.strptime(ts_str, fmt)
+                elapsed = time.time() - dt.replace(tzinfo=timezone.utc).timestamp()
+                if elapsed < 0:
+                    elapsed = time.time() - dt.timestamp()
+                d, rem = divmod(int(abs(elapsed)), 86400)
+                h, rem = divmod(rem, 3600)
+                m = rem // 60
+                if d > 0:
+                    return f'{d}d {h}h'
+                elif h > 0:
+                    return f'{h}h {m}m'
+                return f'{m}m'
+            except ValueError:
+                continue
+        return None
+
+class OpenRCAdapter(InitAdapter):
+    def __init__(self, host):
+        self._host = host
+    def status(self, service):
+        r = self._host.run(['rc-service', service, 'status'], timeout=3)
+        out = r.out.strip()
+        return ('ok' if 'started' in out else 'error'), out
+    def action(self, service, act):
+        r = self._host.run(['rc-service', service, act], timeout=10)
+        return r.ok, r.out + r.err
+    def running_since(self, service):
+        return None
+
+class NullAdapter(InitAdapter):
+    _MSG = 'service control unavailable — init system not detected'
+    def status(self, service):
+        return 'error', self._MSG
+    def action(self, service, act):
+        return False, self._MSG
+    def running_since(self, service):
+        return None
+
+class FakeInitAdapter(InitAdapter):
+    """Test double for INIT — mirrors FakeHost pattern."""
+    def __init__(self, statuses=None, actions=None, since=None):
+        self.statuses = statuses or {}
+        self.actions  = actions  or {}
+        self.since    = since    or {}
+        self.calls    = []
+    def status(self, service):
+        self.calls.append(('status', service))
+        return self.statuses.get(service, ('error', 'unknown'))
+    def action(self, service, act):
+        self.calls.append(('action', service, act))
+        return self.actions.get(service, (False, 'not configured'))
+    def running_since(self, service):
+        self.calls.append(('running_since', service))
+        return self.since.get(service)
+
+def detect_init(host):
+    """Probe the host to pick the right InitAdapter."""
+    if host.run(['systemctl', '--version'], timeout=3).ok:
+        return SystemdAdapter(host)
+    if host.run(['rc-service', '--version'], timeout=3).ok:
+        return OpenRCAdapter(host)
+    return NullAdapter()
+
+INIT = detect_init(HOST)
+
 # ── Port tagging ───────────────────────────────────────────────────────────
 import threading as _threading
 _request_port = _threading.local()
@@ -233,34 +332,11 @@ def get_metrics_history(minutes=60):
     return [{'ts': r[0], 'aircraft': r[1], 'msg_rate': r[2]} for r in rows]
 
 def get_service_uptime_str(service):
-    """Get how long a systemd service has been running."""
+    """Get how long a service has been running (delegates to INIT)."""
     try:
-        r = HOST.run(['systemctl', 'show', service, '--property=ActiveEnterTimestamp'], timeout=3)
-        line = r.out.strip()
-        if '=' in line:
-            ts_str = line.split('=', 1)[1].strip()
-            if ts_str and ts_str != 'n/a':
-                # Parse "Mon 2026-06-21 15:00:00 EDT"
-                for fmt in ['%a %Y-%m-%d %H:%M:%S %Z', '%a %Y-%m-%d %H:%M:%S UTC']:
-                    try:
-                        dt = datetime.strptime(ts_str, fmt)
-                        elapsed = time.time() - dt.replace(tzinfo=timezone.utc).timestamp()
-                        if elapsed < 0:
-                            elapsed = time.time() - dt.timestamp()
-                        d, rem = divmod(int(abs(elapsed)), 86400)
-                        h, rem = divmod(rem, 3600)
-                        m = rem // 60
-                        if d > 0:
-                            return f'{d}d {h}h'
-                        elif h > 0:
-                            return f'{h}h {m}m'
-                        else:
-                            return f'{m}m'
-                    except Exception:
-                        continue
+        return INIT.running_since(service)
     except Exception:
-        pass
-    return None
+        return None
 
 def get_docker_uptime_str(container):
     try:
@@ -751,9 +827,7 @@ def save_feeders(feeders):
 
 # ── Status ─────────────────────────────────────────────────────────────────
 def systemd_status(service):
-    r = HOST.run(['systemctl', 'is-active', service], timeout=3)
-    state = r.out.strip()
-    return ('ok' if state == 'active' else 'error'), state
+    return INIT.status(service)
 
 def docker_status(container):
     r = HOST.run(['docker', 'inspect', '--format', '{{.State.Status}}', container], timeout=5)
@@ -762,8 +836,7 @@ def docker_status(container):
     return ('ok' if state == 'running' else 'error'), state
 
 def service_action(service, action):
-    r = HOST.run(['systemctl', action, service], timeout=10)
-    return r.ok, r.out + r.err
+    return INIT.action(service, action)
 
 # ── Feeder probe ───────────────────────────────────────────────────────────
 # Deep module: answers "what is this Feeder doing right now". See CONTEXT.md.
@@ -777,7 +850,7 @@ class FeederHealth:
 def feeder_status(feeder):
     """The single kind-dispatch: (status, detail) for a service or docker Feeder."""
     if feeder['kind'] == 'service':
-        return systemd_status(feeder['key'])
+        return INIT.status(feeder['key'])
     return docker_status(feeder['key'])
 
 def _feeder_last_seen(key):

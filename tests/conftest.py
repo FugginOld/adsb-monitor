@@ -10,12 +10,15 @@ import app as appmod  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def fake_host():
-    """Swap the module-level HOST for a FakeHost around every test, then restore."""
-    original = appmod.HOST
+    """Swap HOST and INIT for FakeHost/SystemdAdapter around every test, then restore."""
+    original_host = appmod.HOST
+    original_init = appmod.INIT
     fake = appmod.FakeHost()
     appmod.HOST = fake
+    appmod.INIT = appmod.SystemdAdapter(fake)
     yield fake
-    appmod.HOST = original
+    appmod.HOST = original_host
+    appmod.INIT = original_init
 
 
 @pytest.fixture

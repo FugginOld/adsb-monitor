@@ -230,8 +230,8 @@ fi
 | 3 | Extract `installer/lib.sh` with pkg + init helpers | new `installer/lib.sh` | M | ✅ done |
 | 4 | Replace all `apt-get` calls with `pkg_install`/`pkg_remove` | all installer scripts | M | ✅ done |
 | 5 | Distro compatibility check at installer start | `installer/install-stack.sh` | S | ✅ done (via lib.sh) |
-| 6 | `InitAdapter` in `app.py` | `app.py` | L | pending |
-| 7 | Wire `OpenRCAdapter` (Alpine / minimal SBC support) | `app.py` | M | pending |
+| 6 | `InitAdapter` in `app.py` | `app.py` | L | ✅ done |
+| 7 | Wire `OpenRCAdapter` (Alpine / minimal SBC support) | `app.py` | M | ✅ done |
 | 8 | Update `installer/README.md` | `installer/README.md` | S | pending |
 
 Start with items 1–5 (pure installer / config changes, no `app.py` logic changes).
