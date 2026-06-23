@@ -31,6 +31,74 @@ GRAPHS1090_URL_REMOTE = os.environ.get('GRAPHS1090_URL_REMOTE', GRAPHS1090_URL_L
 ADMIN_PORT    = int(os.environ.get('ADMIN_PORT',    '5000'))
 READONLY_PORT = int(os.environ.get('READONLY_PORT', '5001'))
 
+# ── Host adapter ───────────────────────────────────────────────────────────
+# The seam between business logic and the Linux host. See CONTEXT.md ("Host").
+# Never raises: failures degrade to Result(ok=False) / None, mirroring this
+# monitor's everything-degrades-gracefully behaviour. Swap `HOST` in tests.
+class Result:
+    __slots__ = ('code', 'out', 'err')
+    def __init__(self, code=0, out='', err=''):
+        self.code, self.out, self.err = code, out, err
+    @property
+    def ok(self):
+        return self.code == 0
+
+class LinuxHost:
+    def run(self, cmd, timeout=10):
+        try:
+            r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
+            return Result(r.returncode, r.stdout, r.stderr)
+        except Exception as e:
+            return Result(1, '', str(e))
+    def read_text(self, path):
+        try:
+            with open(path) as f:
+                return f.read()
+        except Exception:
+            return None
+    def read_json(self, path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            return None
+    def write_text(self, path, data):
+        with open(path, 'w') as f:
+            f.write(data)
+
+class FakeHost:
+    """Test double: answers from canned maps, records every call, reflects writes.
+
+    commands: {(cmd, tuple): Result}   files: {path: text-or-obj}
+    Unmatched run -> default_command (a failed Result); unmatched read -> default_file.
+    """
+    def __init__(self, commands=None, files=None, default_command=None, default_file=None):
+        self.commands = {tuple(k): v for k, v in (commands or {}).items()}
+        self.files = dict(files or {})
+        self.default_command = default_command if default_command is not None else Result(1, '', '')
+        self.default_file = default_file
+        self.calls = []
+        self.writes = {}
+    def run(self, cmd, timeout=10):
+        key = tuple(cmd)
+        self.calls.append(('run', key))
+        return self.commands.get(key, self.default_command)
+    def read_text(self, path):
+        self.calls.append(('read_text', path))
+        return self.files.get(path, self.default_file)
+    def read_json(self, path):
+        self.calls.append(('read_json', path))
+        raw = self.files.get(path, self.default_file)
+        if raw is None:
+            return None
+        return json.loads(raw) if isinstance(raw, str) else raw
+    def write_text(self, path, data):
+        self.calls.append(('write_text', path, data))
+        self.writes[path] = data
+        self.files[path] = data
+
+HOST = LinuxHost()
+
 # ── Port tagging ───────────────────────────────────────────────────────────
 import threading as _threading
 _request_port = _threading.local()
@@ -232,44 +300,36 @@ def get_feeder_last_seen(key):
     path = FEEDER_STATUS_FILES.get(key)
     if not path:
         return None
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        now_ts = data.get('now', 0)
-        if now_ts:
-            age = time.time() - now_ts
-            if age < 120:
-                return 'live'
-            elif age < 3600:
-                return f'{int(age//60)}m ago'
-            else:
-                return f'{int(age//3600)}h ago'
-    except Exception:
-        pass
+    data = HOST.read_json(path)
+    if not data:
+        return None
+    now_ts = data.get('now', 0)
+    if now_ts:
+        age = time.time() - now_ts
+        if age < 120:
+            return 'live'
+        elif age < 3600:
+            return f'{int(age//60)}m ago'
+        else:
+            return f'{int(age//3600)}h ago'
     return None
 
 def get_fr24_last_seen():
-    try:
-        r = subprocess.run(['fr24feed-status'], capture_output=True, text=True, timeout=5)
-        text = r.stdout + r.stderr
-        m = re.search(r'connected.*?(\d+)\s*s', text, re.I)
-        if m:
-            age = int(m.group(1))
-            if age < 120: return 'live'
-            return f'{age//60}m ago'
-    except Exception:
-        pass
+    r = HOST.run(['fr24feed-status'], timeout=5)
+    m = re.search(r'connected.*?(\d+)\s*s', r.out + r.err, re.I)
+    if m:
+        age = int(m.group(1))
+        if age < 120: return 'live'
+        return f'{age//60}m ago'
     return None
 
 def get_piaware_last_seen():
-    try:
-        r = subprocess.run(['piaware-status'], capture_output=True, text=True, timeout=5)
-        if 'is connected to FlightAware' in r.stdout:
-            return 'live'
-        return 'disconnected'
-    except Exception:
-        pass
-    return None
+    r = HOST.run(['piaware-status'], timeout=5)
+    if not r.out and not r.err:
+        return None
+    if 'is connected to FlightAware' in r.out:
+        return 'live'
+    return 'disconnected'
 
 # ── Airspy signal analysis ─────────────────────────────────────────────────
 def get_airspy_stats():
@@ -708,46 +768,32 @@ def save_feeders(feeders):
 
 # ── Status ─────────────────────────────────────────────────────────────────
 def systemd_status(service):
-    try:
-        r = subprocess.run(['systemctl', 'is-active', service], capture_output=True, text=True, timeout=3)
-        state = r.stdout.strip()
-        return 'ok' if state == 'active' else 'error', state
-    except Exception as e:
-        return 'error', str(e)
+    r = HOST.run(['systemctl', 'is-active', service], timeout=3)
+    state = r.out.strip()
+    return ('ok' if state == 'active' else 'error'), state
 
 def docker_status(container):
-    try:
-        r = subprocess.run(['docker', 'inspect', '--format', '{{.State.Status}}', container],
-                           capture_output=True, text=True, timeout=5)
-        state = r.stdout.strip()
-        if not state: return 'error', 'not found'
-        return ('ok' if state == 'running' else 'error'), state
-    except Exception as e:
-        return 'error', str(e)
+    r = HOST.run(['docker', 'inspect', '--format', '{{.State.Status}}', container], timeout=5)
+    state = r.out.strip()
+    if not state: return 'error', 'not found'
+    return ('ok' if state == 'running' else 'error'), state
 
 def service_action(service, action):
-    try:
-        r = subprocess.run(['systemctl', action, service], capture_output=True, text=True, timeout=10)
-        return r.returncode == 0, r.stdout + r.stderr
-    except Exception as e:
-        return False, str(e)
+    r = HOST.run(['systemctl', action, service], timeout=10)
+    return r.ok, r.out + r.err
 
 def readsb_metrics():
     metrics = {'aircraft': 0, 'msg_rate': 0, 'max_range_nm': 0}
-    try:
-        with open(os.path.join(READSB_JSON, 'aircraft.json')) as f:
-            ac_data = json.load(f)
+    ac_data = HOST.read_json(os.path.join(READSB_JSON, 'aircraft.json'))
+    if ac_data:
         aircraft = [a for a in ac_data.get('aircraft', []) if a.get('seen', 999) < 60]
         metrics['aircraft'] = len(aircraft)
         ranges = [a['r_dst'] for a in aircraft if 'r_dst' in a]
         if ranges: metrics['max_range_nm'] = round(max(ranges) * 0.539957)
-    except Exception: pass
-    try:
-        with open(os.path.join(READSB_JSON, 'stats.json')) as f:
-            stats = json.load(f)
+    stats = HOST.read_json(os.path.join(READSB_JSON, 'stats.json'))
+    if stats:
         msgs = stats.get('last1min', {}).get('messages_valid', 0)
         metrics['msg_rate'] = round(msgs / 60)
-    except Exception: pass
     return metrics
 
 # ── Airspy / Receiver settings ─────────────────────────────────────────────
