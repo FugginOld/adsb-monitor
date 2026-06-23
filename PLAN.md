@@ -223,16 +223,16 @@ fi
 
 ## Implementation Order
 
-| # | Change | File(s) | Effort |
-|---|---|---|---|
-| 1 | CPU temp sensor list + None guard | `app.py:355-369` | XS |
-| 2 | Arch detection variable in installer | `installer/install-stack.sh` | S |
-| 3 | Extract `installer/lib.sh` with pkg + init helpers | new `installer/lib.sh` | M |
-| 4 | Replace all `apt-get` calls with `pkg_install`/`pkg_remove` | all installer scripts | M |
-| 5 | Distro compatibility check at installer start | `installer/install-stack.sh` | S |
-| 6 | `InitAdapter` in `app.py` | `app.py` | L |
-| 7 | Wire `OpenRCAdapter` (Alpine / minimal SBC support) | `app.py` | M |
-| 8 | Update `installer/README.md` | `installer/README.md` | S |
+| # | Change | File(s) | Effort | Status |
+| --- | --- | --- | --- | --- |
+| 1 | CPU temp sensor list + None guard | `app.py:355-369` | XS | ✅ done |
+| 2 | Arch detection variable in installer | `installer/install-stack.sh` | S | ✅ done (via lib.sh) |
+| 3 | Extract `installer/lib.sh` with pkg + init helpers | new `installer/lib.sh` | M | ✅ done |
+| 4 | Replace all `apt-get` calls with `pkg_install`/`pkg_remove` | all installer scripts | M | ✅ done |
+| 5 | Distro compatibility check at installer start | `installer/install-stack.sh` | S | ✅ done (via lib.sh) |
+| 6 | `InitAdapter` in `app.py` | `app.py` | L | pending |
+| 7 | Wire `OpenRCAdapter` (Alpine / minimal SBC support) | `app.py` | M | pending |
+| 8 | Update `installer/README.md` | `installer/README.md` | S | pending |
 
 Start with items 1–5 (pure installer / config changes, no `app.py` logic changes).
 Items 6–7 (init adapter) are the largest change and should be TDD'd using the

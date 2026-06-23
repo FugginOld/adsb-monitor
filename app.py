@@ -356,11 +356,11 @@ def get_system_metrics():
         metrics['mem_pct']  = psutil.virtual_memory().percent
         metrics['mem_used'] = round(psutil.virtual_memory().used / 1024 / 1024)
         metrics['mem_total']= round(psutil.virtual_memory().total / 1024 / 1024)
-        temp = psutil.sensors_temperatures()
-        if 'cpu_thermal' in temp:
-            metrics['cpu_temp'] = round(temp['cpu_thermal'][0].current, 1)
-        elif 'coretemp' in temp:
-            metrics['cpu_temp'] = round(temp['coretemp'][0].current, 1)
+        temp = psutil.sensors_temperatures() or {}
+        for _key in ('cpu_thermal', 'coretemp', 'k10temp', 'acpitz', 'cpu-thermal', 'soc-thermal'):
+            if _key in temp:
+                metrics['cpu_temp'] = round(temp[_key][0].current, 1)
+                break
         du = shutil.disk_usage('/')
         metrics['disk_pct']  = round(du.used / du.total * 100, 1)
         metrics['disk_used'] = round(du.used / 1024 / 1024 / 1024, 1)

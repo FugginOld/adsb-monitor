@@ -3,14 +3,12 @@
 # Removes adsb-monitor and optionally each stack component
 set -uo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
-info()  { echo -e "${BLUE}==>${NC} $1"; }
-ok()    { echo -e "${GREEN}✓${NC} $1"; }
-warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
-err()   { echo -e "${RED}✗${NC} $1"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=installer/lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
 if [ "$EUID" -ne 0 ]; then err "Run with sudo: sudo ./uninstall.sh"; exit 1; fi
-if ! command -v whiptail >/dev/null 2>&1; then apt-get install -y whiptail >/dev/null 2>&1; fi
+ensure_tui
 
 whiptail --title "ADS-B Stack Uninstaller" --yesno \
 "This will remove components of your ADS-B stack.
@@ -99,12 +97,12 @@ for target in $TARGETS; do
     flightaware)
       info "Removing PiAware..."
       remove_service piaware
-      apt-get remove -y piaware >/dev/null 2>&1
+      pkg_remove piaware
       ok "PiAware removed" ;;
     flightradar24)
       info "Removing fr24feed..."
       remove_service fr24feed
-      apt-get remove -y fr24feed >/dev/null 2>&1
+      pkg_remove fr24feed
       rm -f /etc/fr24feed.ini
       ok "fr24feed removed" ;;
     adsbexchange)
@@ -137,7 +135,7 @@ for target in $TARGETS; do
     planefinder)
       info "Removing Plane Finder..."
       remove_service pfclient
-      apt-get remove -y pfclient >/dev/null 2>&1
+      pkg_remove pfclient
       ok "Plane Finder removed" ;;
     theairtraffic)
       info "Removing TheAirTraffic..."

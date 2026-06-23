@@ -1,21 +1,16 @@
 #!/bin/bash
 # ADS-B Full Stack Installer (TUI) with SDR auto-detection
-# For Armbian / Debian on Raspberry Pi 5
 set -uo pipefail
-
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
-info()  { echo -e "${BLUE}==>${NC} $1"; }
-ok()    { echo -e "${GREEN}✓${NC} $1"; }
-warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
-err()   { echo -e "${RED}✗${NC} $1"; }
 
 STATE_DIR="/tmp/adsb-install"; mkdir -p "$STATE_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=installer/lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
 if [ "$EUID" -ne 0 ]; then err "Run with sudo: sudo ./install-stack.sh"; exit 1; fi
-if ! command -v whiptail >/dev/null 2>&1; then
-  apt-get update -qq && apt-get install -y whiptail >/dev/null 2>&1
-fi
+check_distro_support
+ensure_tui
 
 whiptail --title "ADS-B Stack Installer" --msgbox \
 "Welcome to the ADS-B full-stack installer.
@@ -27,13 +22,14 @@ This will detect your SDR and install:
   - Your selected feeders
   - adsb-monitor (dashboard)
 
-For Armbian/Debian on Raspberry Pi 5.
+Supports: RPi OS, Armbian, Ubuntu, Debian, and derivatives.
+Architecture detected: $ARCH
 
 Press OK to begin." 20 70
 
 # ── SDR detection ───────────────────────────────────────────────────────────
 info "Detecting connected SDR..."
-apt-get install -y usbutils >/dev/null 2>&1
+pkg_install usbutils
 source "$SCRIPT_DIR/detect-sdr.sh"
 eval "$(detect_sdr)"
 
@@ -111,10 +107,8 @@ Takes 10-20 minutes. Continue?" 16 70 || exit 1
 
 clear
 info "Installing..."
-apt-get update -qq
-apt-get install -y git curl wget build-essential cmake pkg-config \
-  libusb-1.0-0-dev netcat-openbsd python3 python3-venv python3-pip \
-  sqlite3 jq usbutils >/dev/null 2>&1
+pkg_update
+install_base_deps
 ok "Dependencies installed"
 
 info "[1/6] Installing readsb + tar1090..."
@@ -169,11 +163,23 @@ install_feeder() {
       piaware-config receiver-type other 2>/dev/null; piaware-config receiver-host localhost 2>/dev/null; piaware-config receiver-port 30005 2>/dev/null
       systemctl restart piaware 2>/dev/null; ok "  PiAware installed (claim at flightaware.com)" ;;
     flightradar24)
-      wget -q https://repo-feed.flightradar24.com/rpi_binaries/fr24feed_1.0.53-0_arm64.deb -O /tmp/fr24feed.deb
-      dpkg -i /tmp/fr24feed.deb >/dev/null 2>&1; ok "  FR24 installed (run 'fr24feed --signup')" ;;
+      if [ "$ARCH" = "unsupported" ]; then warn "  FR24: unsupported architecture $(uname -m) — skipping"
+      else
+        wget -q "https://repo-feed.flightradar24.com/rpi_binaries/fr24feed_1.0.53-0_${ARCH}.deb" -O /tmp/fr24feed.deb 2>/dev/null \
+          && dpkg_install "fr24feed" /tmp/fr24feed.deb \
+          && ok "  FR24 installed (run 'fr24feed --signup')" \
+          || warn "  FR24 .deb download/install failed for arch $ARCH"
+      fi ;;
     airnav) command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; ok "  Docker ready - configure AirNav in Settings" ;;
     opensky) warn "  OpenSky needs manual feeder - see opensky-network.org/feed" ;;
-    planefinder) wget -q https://client.planefinder.net/pfclient_5.0.161_arm64.deb -O /tmp/pfclient.deb 2>/dev/null; dpkg -i /tmp/pfclient.deb >/dev/null 2>&1; ok "  Plane Finder installed (:30053)" ;;
+    planefinder)
+      if [ "$ARCH" = "unsupported" ]; then warn "  Plane Finder: unsupported architecture $(uname -m) — skipping"
+      else
+        wget -q "https://client.planefinder.net/pfclient_5.0.161_${ARCH}.deb" -O /tmp/pfclient.deb 2>/dev/null \
+          && dpkg_install "pfclient" /tmp/pfclient.deb \
+          && ok "  Plane Finder installed (:30053)" \
+          || warn "  Plane Finder .deb download/install failed for arch $ARCH"
+      fi ;;
     adsbhub) warn "  ADSBHub needs manual client - see adsbhub.org/howtofeed.php" ;;
     planewatch) warn "  Plane.watch is Docker-based - see sdr-enthusiasts.gitbook.io" ;;
     theairtraffic) bash -c "$(wget -q -O - https://gitlab.com/adsb/theairtraffic-feeder/-/raw/master/install.sh)" </dev/null >/dev/null 2>&1; ok "  TheAirTraffic installed" ;;
