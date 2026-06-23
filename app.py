@@ -891,26 +891,24 @@ def write_receiver_options(text, new_settings):
     return '\n'.join(out) + '\n'
 
 # ── Log streaming ──────────────────────────────────────────────────────────
-def stream_systemd_logs(service):
-    cmd = ['journalctl', '-u', service, '-f', '-n', str(LOG_LINES), '--no-pager', '--output=short-iso']
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        for line in proc.stdout:
-            yield f"data: {json.dumps(line.rstrip())}\n\n"
-    except GeneratorExit: proc.kill()
-    except Exception as e: yield f"data: {json.dumps(f'[error] {e}')}\n\n"
-    finally:
-        try: proc.kill()
-        except: pass
+def _sse(text):
+    """Frame one line of text as a Server-Sent Events data message."""
+    return f"data: {json.dumps(text)}\n\n"
 
-def stream_docker_logs(container):
-    cmd = ['docker', 'logs', '-f', '--tail', str(LOG_LINES), '--timestamps', container]
+def _log_command(feeder):
+    """The follow-logs command for a Feeder — the single kind-dispatch for logs."""
+    if feeder['kind'] == 'docker':
+        return ['docker', 'logs', '-f', '--tail', str(LOG_LINES), '--timestamps', feeder['key']]
+    return ['journalctl', '-u', feeder['key'], '-f', '-n', str(LOG_LINES), '--no-pager', '--output=short-iso']
+
+def stream_logs(cmd):
+    """Spawn a follow-logs process and yield its lines as SSE frames."""
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in proc.stdout:
-            yield f"data: {json.dumps(line.rstrip())}\n\n"
+            yield _sse(line.rstrip())
     except GeneratorExit: proc.kill()
-    except Exception as e: yield f"data: {json.dumps(f'[error] {e}')}\n\n"
+    except Exception as e: yield _sse(f'[error] {e}')
     finally:
         try: proc.kill()
         except: pass
@@ -1163,7 +1161,7 @@ def api_logs(key):
     if key not in cfg:
         return Response('data: {"error": "unknown service"}\n\n', status=404, mimetype='text/event-stream')
     entry = cfg[key]
-    gen = stream_docker_logs(key) if entry['kind'] == 'docker' else stream_systemd_logs(key)
+    gen = stream_logs(_log_command(entry))
     return Response(stream_with_context(gen), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
