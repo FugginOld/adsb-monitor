@@ -16,7 +16,7 @@
 The installer is a TUI (terminal UI) wizard. It auto-detects your SDR, asks for your location, lets you pick feeders, and installs everything.
 
 ```bash
-git clone https://github.com/Fuggin/adsb-monitor.git
+git clone https://github.com/FugginOld/adsb-monitor.git
 cd adsb-monitor/installer
 chmod +x *.sh
 sudo ./install-stack.sh
@@ -36,7 +36,7 @@ If no SDR is detected you can pick the type manually or retry the scan.
 ### Feeders available
 
 | Feeder | Notes |
-|---|---|
+| --- | --- |
 | FlightAware (PiAware) | Claim at flightaware.com/adsb/stats |
 | Flightradar24 | Run `sudo fr24feed --signup` after install |
 | ADSBExchange | Auto-generates UUID; claim at adsbexchange.com |
@@ -56,7 +56,7 @@ After install, open `http://<pi-ip>:5000` → **Settings** to enter sharing keys
 ## 2. Access the dashboard
 
 | URL | Access |
-|---|---|
+| --- | --- |
 | `http://<pi-ip>:5000` | Admin — full access (settings, restarts, backup) |
 | `http://<pi-ip>:5001` | Read-only — status + stats only |
 
@@ -77,6 +77,7 @@ Environment="READONLY_PORT=8081"
 ### Status panel
 
 Each feeder card shows:
+
 - **Active / Down** badge (green / red)
 - **Last seen** — time since the feeder last produced output
 - **Running for** — how long the service has been up
@@ -107,7 +108,7 @@ Open `http://<pi-ip>:5000` (admin port) and click **Settings**.
 ### Airspy settings
 
 | Field | Notes |
-|---|---|
+| --- | --- |
 | Gain (0–21) | 21 = max; reduce if near a busy airport |
 | Sample rate | 6 MSPS (Mini) or 12 MSPS (R2) |
 | Options | Extra airspy_adsb flags |
@@ -117,7 +118,7 @@ Changes restart `airspy_adsb` automatically.
 ### Receiver settings
 
 | Field | Notes |
-|---|---|
+| --- | --- |
 | Latitude / Longitude | Decimal degrees |
 | Max range (nm) | Default 500 |
 

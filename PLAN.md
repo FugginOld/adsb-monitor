@@ -211,6 +211,7 @@ fi
 **Problem:** `installer/README.md` only covers RPi 5 / Armbian.
 
 **Fix:**
+
 - Add a "Supported Platforms" table (see table at top of this file)
 - Add a "Platform Notes" section covering known feeder limitations per arch
   (e.g. pfclient arm64-only, airspy_adsb armhf support status)
