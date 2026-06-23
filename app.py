@@ -241,10 +241,8 @@ def get_metrics_history(minutes=60):
 def get_service_uptime_str(service):
     """Get how long a systemd service has been running."""
     try:
-        r = subprocess.run(
-            ['systemctl', 'show', service, '--property=ActiveEnterTimestamp'],
-            capture_output=True, text=True, timeout=3)
-        line = r.stdout.strip()
+        r = HOST.run(['systemctl', 'show', service, '--property=ActiveEnterTimestamp'], timeout=3)
+        line = r.out.strip()
         if '=' in line:
             ts_str = line.split('=', 1)[1].strip()
             if ts_str and ts_str != 'n/a':
@@ -272,10 +270,8 @@ def get_service_uptime_str(service):
 
 def get_docker_uptime_str(container):
     try:
-        r = subprocess.run(
-            ['docker', 'inspect', '--format', '{{.State.StartedAt}}', container],
-            capture_output=True, text=True, timeout=5)
-        ts_str = r.stdout.strip()
+        r = HOST.run(['docker', 'inspect', '--format', '{{.State.StartedAt}}', container], timeout=5)
+        ts_str = r.out.strip()
         if ts_str:
             from datetime import datetime
             dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
@@ -662,16 +658,13 @@ def read_piaware_config(fields):
 
 def read_docker_env(container):
     vals = {}
-    try:
-        r = subprocess.run(
-            ['docker', 'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', container],
-            capture_output=True, text=True, timeout=5)
-        for line in r.stdout.splitlines():
-            if '=' in line:
-                k, _, v = line.partition('=')
-                vals[k.strip()] = v.strip()
-    except Exception:
-        pass
+    r = HOST.run(
+        ['docker', 'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', container],
+        timeout=5)
+    for line in r.out.splitlines():
+        if '=' in line:
+            k, _, v = line.partition('=')
+            vals[k.strip()] = v.strip()
     return vals
 
 def get_feeder_settings(key):
@@ -698,16 +691,18 @@ def set_feeder_settings(key, data):
             container = cfg['docker_container']
             current = read_docker_env(container)
             current.update({k: v for k, v in data.items() if v != ''})
-            r = subprocess.run(['docker', 'inspect', container], capture_output=True, text=True, timeout=5)
-            info = json.loads(r.stdout)[0]
+            r = HOST.run(['docker', 'inspect', container], timeout=5)
+            info = json.loads(r.out)[0]
             image = info['Config']['Image']
             extra_hosts = info['HostConfig'].get('ExtraHosts') or []
             env_args  = [arg for k, v in current.items() for arg in ['-e', f'{k}={v}']]
             host_args = [arg for h in extra_hosts for arg in ['--add-host', h]]
-            subprocess.run(['docker', 'stop', container], timeout=10)
-            subprocess.run(['docker', 'rm',   container], timeout=10)
-            subprocess.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
-                           + env_args + host_args + [image], check=True, timeout=15)
+            HOST.run(['docker', 'stop', container], timeout=10)
+            HOST.run(['docker', 'rm',   container], timeout=10)
+            run = HOST.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
+                           + env_args + host_args + [image], timeout=15)
+            if not run.ok:
+                return False, run.err or 'docker run failed'
             return True, 'Container recreated'
         elif 'config_file' in cfg:
             fmt = cfg.get('format', 'ini_flat')
@@ -722,7 +717,7 @@ def set_feeder_settings(key, data):
             return True, 'Saved'
         elif cfg.get('write_via_cmd'):
             for k, v in data.items():
-                if v: subprocess.run(['piaware-config', k, v], timeout=5)
+                if v: HOST.run(['piaware-config', k, v], timeout=5)
             return True, 'Saved'
         return False, 'No write method defined'
     except Exception as e:
@@ -774,6 +769,42 @@ def service_action(service, action):
     r = HOST.run(['systemctl', action, service], timeout=10)
     return r.ok, r.out + r.err
 
+# ── Feeder probe ───────────────────────────────────────────────────────────
+# Deep module: answers "what is this Feeder doing right now". See CONTEXT.md.
+# Callers never branch on Feeder kind — the dispatch lives here, once.
+class FeederHealth:
+    __slots__ = ('status', 'detail', 'last_seen', 'running_for')
+    def __init__(self, status, detail, last_seen=None, running_for=None):
+        self.status, self.detail = status, detail
+        self.last_seen, self.running_for = last_seen, running_for
+
+def feeder_status(feeder):
+    """The single kind-dispatch: (status, detail) for a service or docker Feeder."""
+    if feeder['kind'] == 'service':
+        return systemd_status(feeder['key'])
+    return docker_status(feeder['key'])
+
+def _feeder_last_seen(key):
+    if key in FEEDER_STATUS_FILES:
+        return get_feeder_last_seen(key)
+    if key == 'fr24feed':
+        return get_fr24_last_seen()
+    if key == 'piaware':
+        return get_piaware_last_seen()
+    return None
+
+def _feeder_running_for(feeder):
+    if feeder['kind'] == 'service':
+        return get_service_uptime_str(feeder['key'])
+    return get_docker_uptime_str(feeder['key'])
+
+def probe(feeder):
+    """Compose full Feeder health from the status, last-seen and running-for resolvers."""
+    status, detail = feeder_status(feeder)
+    return FeederHealth(status, detail,
+                        last_seen=_feeder_last_seen(feeder['key']),
+                        running_for=_feeder_running_for(feeder))
+
 def readsb_metrics():
     metrics = {'aircraft': 0, 'msg_rate': 0, 'max_range_nm': 0}
     ac_data = HOST.read_json(os.path.join(READSB_JSON, 'aircraft.json'))
@@ -802,8 +833,7 @@ def parse_airspy_options(text):
     return s
 
 def write_airspy_options(settings):
-    try: existing = open(AIRSPY_DEFAULT).read()
-    except: existing = ''
+    existing = HOST.read_text(AIRSPY_DEFAULT) or ''
     updates = {
         'GAIN':        settings.get('gain', '21'),
         'SAMPLE_RATE': settings.get('sample_rate', '6'),
@@ -830,8 +860,7 @@ def write_airspy_options(settings):
     for key, default in required.items():
         if key not in existing_keys:
             out.append(f'{key}={default}')
-    with open(AIRSPY_DEFAULT, 'w') as f:
-        f.write('\n'.join(out) + '\n')
+    HOST.write_text(AIRSPY_DEFAULT, '\n'.join(out) + '\n')
 
 def parse_receiver_options(text):
     s = {'lat': '', 'lon': '', 'max_range': '500'}
@@ -891,8 +920,7 @@ def background_poll():
             feeders = load_config()
             for f in feeders:
                 try:
-                    status, _ = (systemd_status(f['key']) if f['kind'] == 'service'
-                                 else docker_status(f['key']))
+                    status, _ = feeder_status(f)
                     record_service_event(f['key'], status)
                 except Exception:
                     pass
@@ -912,8 +940,7 @@ def api_alerts():
     feeders = load_config()
     alerts = []
     for f in feeders:
-        status, detail = (systemd_status(f['key']) if f['kind'] == 'service'
-                         else docker_status(f['key']))
+        status, detail = feeder_status(f)
         if status != 'ok':
             alerts.append({'key': f['key'], 'label': f['label'], 'detail': detail})
     return jsonify({'alerts': alerts, 'any_down': len(alerts) > 0})
@@ -945,38 +972,21 @@ def api_status():
     versions = get_versions()
     results  = []
     for f in feeders:
-        status, detail = (systemd_status(f['key']) if f['kind'] == 'service' else docker_status(f['key']))
+        health = probe(f)
         ver    = versions.get(f['key'], {})
-        hint   = f.get('hint', '')
-        uptime_str = None
-        last_seen  = None
-
-        if f['key'] == 'airspy_adsb':
-            hint = airspy_live_hint()
-        if f['kind'] == 'service':
-            uptime_str = get_service_uptime_str(f['key'])
-        elif f['kind'] == 'docker':
-            uptime_str = get_docker_uptime_str(f['key'])
-
-        # Feeder last-seen
-        if f['key'] in FEEDER_STATUS_FILES:
-            last_seen = get_feeder_last_seen(f['key'])
-        elif f['key'] == 'fr24feed':
-            last_seen = get_fr24_last_seen()
-        elif f['key'] == 'piaware':
-            last_seen = get_piaware_last_seen()
+        hint   = airspy_live_hint() if f['key'] == 'airspy_adsb' else f.get('hint', '')
 
         uptime_pct  = get_service_uptime_pct(f['key'], days=7)
         uptime_bars = get_uptime_bars(f['key'], days=7)
 
         results.append({
-            **f, 'status': status, 'detail': detail, 'hint': hint,
+            **f, 'status': health.status, 'detail': health.detail, 'hint': hint,
             'version': ver.get('installed'), 'latest': ver.get('latest'),
             'outdated': ver.get('outdated', False),
-            'uptime_str':  uptime_str,
+            'uptime_str':  health.running_for,
             'uptime_pct':  uptime_pct,
             'uptime_bars': uptime_bars,
-            'last_seen':   last_seen,
+            'last_seen':   health.last_seen,
         })
     return jsonify({'feeders': results, 'metrics': readsb_metrics()})
 
@@ -1114,9 +1124,8 @@ def get_receiver():
 @admin_required
 def set_receiver():
     try:
-        text = open(READSB_DEFAULT).read()
-        with open(READSB_DEFAULT, 'w') as f:
-            f.write(write_receiver_options(text, request.get_json()))
+        text = HOST.read_text(READSB_DEFAULT) or ''
+        HOST.write_text(READSB_DEFAULT, write_receiver_options(text, request.get_json()))
         ok, out = service_action('readsb', 'restart')
         return jsonify({'ok': ok, 'output': out})
     except Exception as e:

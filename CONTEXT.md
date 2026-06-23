@@ -13,6 +13,18 @@ architecture terms describe *how the code is shaped* (seams, adapters, modules).
   state-change events in SQLite.
 - **Gain recommendation** — SNR/noise/RSSI thresholds → a suggested ±dB airspy gain
   change.
+- **Feeder health** — the live-host answer to "what is this Feeder doing right now":
+  `FeederHealth{status, detail, last_seen, running_for}`. Distinct from historical
+  **Uptime** (a SQLite aggregation). Produced by the **Feeder probe**.
+
+## Architecture (cont.)
+
+- **Feeder probe** — the deep module that answers Feeder health. `probe(feeder) →
+  FeederHealth` composes a cheap `feeder_status(feeder) → (status, detail)` (the single
+  kind-dispatch over systemd/docker, used directly by the background poller and alerts)
+  with the `last_seen` and `running_for` resolvers. Resolver selection is implicit inside
+  the probe (keyed off the Feeder's key/kind); callers never branch on Feeder kind. Sits
+  on the **Host** seam, so it is fully testable via `FakeHost`.
 
 ## Architecture
 
