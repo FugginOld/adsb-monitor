@@ -116,6 +116,39 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# ── Uptime ledger ──────────────────────────────────────────────────────────
+# The pure uptime math + the service_events query, shared by every uptime view.
+# See CONTEXT.md ("Uptime ledger"). fold_uptime is pure — testable with no DB.
+def fold_uptime(rows, start, end):
+    """Fraction (0-100) of [start, end] a service was 'ok', from (ts, status) rows.
+
+    Rows may include one pre-window event (ts < start) that seeds the starting status.
+    """
+    up = 0.0
+    prev_ts, prev_status = start, 'unknown'
+    for ts, status in rows:
+        if ts < start:
+            prev_status = status
+            continue
+        eff = max(ts, start)
+        if prev_status == 'ok':
+            up += eff - prev_ts
+        prev_ts, prev_status = eff, status
+    if prev_status == 'ok':
+        up += end - prev_ts
+    span = end - start
+    return round(min(100, up / span * 100), 1) if span > 0 else None
+
+def _query_events(service, start, end):
+    """All (ts, status) events for a service in [start, end], oldest first."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts >= ? AND ts <= ? ORDER BY ts ASC',
+              (service, start, end))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
 # ── SQLite history ─────────────────────────────────────────────────────────
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -170,65 +203,24 @@ def get_uptime_bars(service, days=7):
     for day_offset in range(days - 1, -1, -1):
         day_start = now - (day_offset + 1) * 86400
         day_end   = now - day_offset * 86400
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts >= ? AND ts <= ? ORDER BY ts ASC',
-                  (service, day_start - 86400, day_end))
-        rows = c.fetchall()
-        conn.close()
-        up = 0.0
-        prev_ts = day_start
-        prev_status = 'unknown'
-        for ts, status in rows:
-            if ts < day_start:
-                prev_status = status
-                continue
-            effective_ts = max(ts, day_start)
-            if prev_status == 'ok':
-                up += effective_ts - prev_ts
-            prev_ts = effective_ts
-            prev_status = status
-        if prev_status == 'ok':
-            up += day_end - prev_ts
-        span = day_end - day_start
-        pct = round(min(100, up / span * 100), 1) if span > 0 else None
-        bars.append(pct)
+        # query one day back so the fold can seed the day's starting status
+        rows = _query_events(service, day_start - 86400, day_end)
+        bars.append(fold_uptime(rows, day_start, day_end))
     return bars
 
 
 def get_service_uptime_pct(service, days=7):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    since = time.time() - days * 86400
-    c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts>=? ORDER BY ts ASC',
-              (service, since))
-    rows = c.fetchall()
-    conn.close()
+    now = time.time()
+    since = now - days * 86400
+    rows = _query_events(service, since, now)
     if not rows:
         return None
-    total = time.time() - since
-    up_time = 0.0
-    prev_ts = since
-    prev_status = 'unknown'
-    for ts, status in rows:
-        if prev_status == 'ok':
-            up_time += ts - prev_ts
-        prev_ts = ts
-        prev_status = status
-    if prev_status == 'ok':
-        up_time += time.time() - prev_ts
-    return round((up_time / total) * 100, 1) if total > 0 else None
+    return fold_uptime(rows, since, now)
 
 def get_uptime_history(service, days=7):
-    """Return daily uptime % for sparkline."""
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    since = time.time() - days * 86400
-    c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts>=? ORDER BY ts ASC',
-              (service, since))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    """Return raw (ts, status) events for the window (sparkline source)."""
+    now = time.time()
+    return _query_events(service, now - days * 86400, now)
 
 def get_metrics_history(minutes=60):
     conn = sqlite3.connect(DB_FILE)
@@ -1055,30 +1047,8 @@ def api_uptime_history():
         for day_offset in range(days - 1, -1, -1):
             day_start = now - (day_offset + 1) * 86400
             day_end   = now - day_offset * 86400
-            conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            # Get all events in window plus last event before window
-            c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts >= ? AND ts <= ? ORDER BY ts ASC',
-                      (key, day_start - 86400, day_end))
-            rows = c.fetchall()
-            conn.close()
-            # Calculate uptime for this day
-            up = 0.0
-            prev_ts = day_start
-            prev_status = 'unknown'
-            for ts, status in rows:
-                if ts < day_start:
-                    prev_status = status
-                    continue
-                effective_ts = max(ts, day_start)
-                if prev_status == 'ok':
-                    up += effective_ts - prev_ts
-                prev_ts = effective_ts
-                prev_status = status
-            if prev_status == 'ok':
-                up += day_end - prev_ts
-            span = day_end - day_start
-            pct = round(min(100, up / span * 100), 1) if span > 0 else None
+            rows = _query_events(key, day_start - 86400, day_end)
+            pct  = fold_uptime(rows, day_start, day_end)
             from datetime import datetime
             day_label = datetime.fromtimestamp(day_start + 43200).strftime('%m/%d')
             daily.append({'day': day_label, 'pct': pct})

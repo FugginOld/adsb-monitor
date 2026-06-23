@@ -16,3 +16,13 @@ def fake_host():
     appmod.HOST = fake
     yield fake
     appmod.HOST = original
+
+
+@pytest.fixture
+def ledger_db(tmp_path):
+    """Point DB_FILE at a fresh temp SQLite file with the schema created. Opt-in."""
+    original = appmod.DB_FILE
+    appmod.DB_FILE = str(tmp_path / 'test.db')
+    appmod.init_db()
+    yield appmod.DB_FILE
+    appmod.DB_FILE = original

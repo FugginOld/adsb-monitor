@@ -43,3 +43,11 @@ architecture terms describe *how the code is shaped* (seams, adapters, modules).
   (delegating to the low-level `read_flat_ini`/`read_docker_env`/… functions on the **Host**
   seam); the format-independent tails (extra-files overlay, field projection, writable
   filtering) stay in the orchestration. A `None` adapter means read-only-via-extra-files.
+
+- **Uptime ledger** — the SQLite history of Feeder state-change events, plus the queries
+  over it. The historical **Uptime** math is one pure function, `fold_uptime(rows, start,
+  end) → pct`, shared by the daily-bars view, the uptime-history route, and the aggregate
+  `get_service_uptime_pct` (which keeps a `None`-on-empty guard). `_query_events(service,
+  start, end)` centralises the `service_events` SELECT. The write side (`record_service_event`,
+  `record_metrics`, pruning) is separate. The pure fold is unit-testable with fixture
+  row-lists — no database.
