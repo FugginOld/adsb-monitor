@@ -333,11 +333,7 @@ def get_piaware_last_seen():
 
 # ── Airspy signal analysis ─────────────────────────────────────────────────
 def get_airspy_stats():
-    try:
-        with open(AIRSPY_STATS) as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return HOST.read_json(AIRSPY_STATS) or {}
 
 def gain_recommendation(stats):
     """Analyze airspy stats and suggest gain adjustment."""
@@ -386,8 +382,9 @@ def get_system_metrics():
 # ── readsb deep stats ──────────────────────────────────────────────────────
 def get_readsb_deep_stats():
     try:
-        with open(os.path.join(READSB_JSON, 'stats.json')) as f:
-            stats = json.load(f)
+        stats = HOST.read_json(os.path.join(READSB_JSON, 'stats.json'))
+        if not stats:
+            return {}
         last  = stats.get('last1min', {})
         total = stats.get('total', {})
         return {
@@ -446,18 +443,13 @@ def _fetch_url(url, timeout=5):
 def _get_installed_version(key, src):
     if 'installed_files' in src:
         for path in src['installed_files']:
-            try:
-                v = open(path).read().strip()
-                if v: return v
-            except Exception:
-                continue
+            txt = HOST.read_text(path)
+            if txt and txt.strip():
+                return txt.strip()
         return None
     if 'installed_file' in src:
-        try:
-            v = open(src['installed_file']).read().strip()
-            return v if v else None
-        except Exception:
-            return None
+        txt = HOST.read_text(src['installed_file'])
+        return txt.strip() if txt and txt.strip() else None
     if 'installed_cmd' in src:
         try:
             r = subprocess.run(src['installed_cmd'], capture_output=True, text=True, timeout=4)
@@ -536,7 +528,7 @@ def recommended_sample_rate(model):
 
 def airspy_live_hint():
     try:
-        settings = parse_airspy_options(open(AIRSPY_DEFAULT).read())
+        settings = parse_airspy_options(HOST.read_text(AIRSPY_DEFAULT) or '')
         model = detect_airspy_model()
         rate  = settings.get('sample_rate', '?')
         gain  = settings.get('gain', '?')
@@ -1004,8 +996,7 @@ def api_readsb_stats():
 def api_aircraft_types():
     """Return aircraft type breakdown from readsb stats."""
     try:
-        with open(os.path.join(READSB_JSON, 'stats.json')) as f:
-            stats = json.load(f)
+        stats = HOST.read_json(os.path.join(READSB_JSON, 'stats.json')) or {}
         types = stats.get('aircraft_count_by_type', {})
         # Group into meaningful categories
         return jsonify({
@@ -1093,7 +1084,7 @@ def api_versions_refresh():
 @admin_required
 def get_airspy():
     try:
-        settings = parse_airspy_options(open(AIRSPY_DEFAULT).read())
+        settings = parse_airspy_options(HOST.read_text(AIRSPY_DEFAULT) or '')
         model    = detect_airspy_model()
         settings['model'] = model
         settings['recommended_sample_rate'] = recommended_sample_rate(model)
@@ -1115,7 +1106,7 @@ def set_airspy():
 @admin_required
 def get_receiver():
     try:
-        return jsonify({'ok': True, 'settings': parse_receiver_options(open(READSB_DEFAULT).read())})
+        return jsonify({'ok': True, 'settings': parse_receiver_options(HOST.read_text(READSB_DEFAULT) or '')})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 
