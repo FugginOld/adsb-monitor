@@ -35,3 +35,11 @@ architecture terms describe *how the code is shaped* (seams, adapters, modules).
   **never raises**: failures degrade to `Result{ok: False}` or `None`, matching the app's
   monitor-everything-degrades-gracefully behavior. Injected as a swappable module-level
   singleton `HOST`. Out of scope: log streaming (`Popen`) and HTTP version fetch.
+
+- **Config store** — the deep module behind Feeder settings. `_config_adapter(cfg) →
+  Adapter(read, write)` selects a format adapter (`ini_flat`, `shell_vars`, `piaware`,
+  `docker`) **once**, used by both `get_feeder_settings` and `set_feeder_settings` — no
+  more twin format-dispatch ladders. Adapters own only the format-specific raw read/write
+  (delegating to the low-level `read_flat_ini`/`read_docker_env`/… functions on the **Host**
+  seam); the format-independent tails (extra-files overlay, field projection, writable
+  filtering) stay in the orchestration. A `None` adapter means read-only-via-extra-files.

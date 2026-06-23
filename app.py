@@ -9,6 +9,7 @@ import time
 import urllib.request
 import psutil
 import shutil
+from collections import namedtuple
 from datetime import datetime, timezone
 from flask import Flask, jsonify, send_from_directory, Response, stream_with_context, request
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -594,38 +595,29 @@ FEEDER_CONFIGS = {
 
 def read_flat_ini(path):
     vals = {}
-    try:
-        for line in open(path).readlines():
-            line = line.strip()
-            if not line or line.startswith('#'): continue
-            if '=' in line:
-                k, _, v = line.partition('=')
-                vals[k.strip()] = v.strip().strip('"').strip("'")
-    except Exception:
-        pass
+    for line in (HOST.read_text(path) or '').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'): continue
+        if '=' in line:
+            k, _, v = line.partition('=')
+            vals[k.strip()] = v.strip().strip('"').strip("'")
     return vals
 
 def write_flat_ini(path, data):
-    with open(path, 'w') as f:
-        for k, v in data.items():
-            f.write(f'{k}={v}\n')
+    HOST.write_text(path, ''.join(f'{k}={v}\n' for k, v in data.items()))
 
 def read_shell_vars(path):
     vals = {}
-    try:
-        for line in open(path).readlines():
-            line = line.strip().lstrip('export').strip()
-            if not line or line.startswith('#'): continue
-            if '=' in line:
-                k, _, v = line.partition('=')
-                vals[k.strip()] = v.strip().strip('"').strip("'")
-    except Exception:
-        pass
+    for line in (HOST.read_text(path) or '').splitlines():
+        line = line.strip().lstrip('export').strip()
+        if not line or line.startswith('#'): continue
+        if '=' in line:
+            k, _, v = line.partition('=')
+            vals[k.strip()] = v.strip().strip('"').strip("'")
     return vals
 
 def write_shell_vars(path, data):
-    try: existing = open(path).read()
-    except: existing = ''
+    existing = HOST.read_text(path) or ''
     lines = existing.splitlines()
     updated = set()
     out = []
@@ -641,19 +633,15 @@ def write_shell_vars(path, data):
     for k, v in data.items():
         if k not in updated:
             out.append(f'{k}="{v}"')
-    with open(path, 'w') as f:
-        f.write('\n'.join(out) + '\n')
+    HOST.write_text(path, '\n'.join(out) + '\n')
 
 def read_piaware_config(fields):
     vals = {}
-    try:
-        r = subprocess.run(['piaware-config', '--show'], capture_output=True, text=True, timeout=5)
-        for line in r.stdout.splitlines():
-            if ' ' in line:
-                k, _, v = line.partition(' ')
-                vals[k.strip()] = v.strip().split()[0]
-    except Exception:
-        pass
+    r = HOST.run(['piaware-config', '--show'], timeout=5)
+    for line in r.out.splitlines():
+        if ' ' in line:
+            k, _, v = line.partition(' ')
+            vals[k.strip()] = v.strip().split()[0]
     return vals
 
 def read_docker_env(container):
@@ -667,59 +655,83 @@ def read_docker_env(container):
             vals[k.strip()] = v.strip()
     return vals
 
+# ── Config store ───────────────────────────────────────────────────────────
+# Deep module behind Feeder settings: one adapter per format, selected ONCE by
+# _config_adapter and reused by both get/set. See CONTEXT.md ("Config store").
+Adapter = namedtuple('Adapter', ['read', 'write'])
+
+def _writable_only(cfg, data):
+    """Drop readonly fields — file formats filter, docker/piaware historically don't."""
+    writable = {f['key'] for f in cfg.get('fields', []) if not f.get('readonly')}
+    return {k: v for k, v in data.items() if k in writable}
+
+def _write_ini_flat(cfg, data):
+    existing = read_flat_ini(cfg['config_file'])
+    existing.update(_writable_only(cfg, data))
+    write_flat_ini(cfg['config_file'], existing)
+    return True, 'Saved'
+
+def _write_shell_vars(cfg, data):
+    write_shell_vars(cfg['config_file'], _writable_only(cfg, data))
+    return True, 'Saved'
+
+def _write_piaware(cfg, data):
+    for k, v in data.items():
+        if v: HOST.run(['piaware-config', k, v], timeout=5)
+    return True, 'Saved'
+
+def _write_docker(cfg, data):
+    container = cfg['docker_container']
+    current = read_docker_env(container)
+    current.update({k: v for k, v in data.items() if v != ''})
+    r = HOST.run(['docker', 'inspect', container], timeout=5)
+    info = json.loads(r.out)[0]
+    image = info['Config']['Image']
+    extra_hosts = info['HostConfig'].get('ExtraHosts') or []
+    env_args  = [arg for k, v in current.items() for arg in ['-e', f'{k}={v}']]
+    host_args = [arg for h in extra_hosts for arg in ['--add-host', h]]
+    HOST.run(['docker', 'stop', container], timeout=10)
+    HOST.run(['docker', 'rm',   container], timeout=10)
+    run = HOST.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
+                   + env_args + host_args + [image], timeout=15)
+    if not run.ok:
+        return False, run.err or 'docker run failed'
+    return True, 'Container recreated'
+
+CONFIG_ADAPTERS = {
+    'ini_flat':   Adapter(lambda cfg: read_flat_ini(cfg['config_file']),         _write_ini_flat),
+    'shell_vars': Adapter(lambda cfg: read_shell_vars(cfg['config_file']),       _write_shell_vars),
+    'piaware':    Adapter(lambda cfg: read_piaware_config(cfg.get('fields', [])), _write_piaware),
+    'docker':     Adapter(lambda cfg: read_docker_env(cfg['docker_container']),  _write_docker),
+}
+
+def _config_adapter(cfg):
+    """Select the format adapter once — used by both get and set."""
+    if 'docker_container' in cfg:
+        return CONFIG_ADAPTERS['docker']
+    if 'config_file' in cfg:
+        return CONFIG_ADAPTERS.get(cfg.get('format', 'ini_flat'))
+    if cfg.get('config_cmd_read') or cfg.get('write_via_cmd'):
+        return CONFIG_ADAPTERS['piaware']
+    return None
+
 def get_feeder_settings(key):
     cfg = FEEDER_CONFIGS.get(key)
     if not cfg: return {}
-    vals = {}
-    if 'docker_container' in cfg:
-        vals = read_docker_env(cfg['docker_container'])
-    elif 'config_file' in cfg:
-        fmt = cfg.get('format', 'ini_flat')
-        vals = read_flat_ini(cfg['config_file']) if fmt == 'ini_flat' else read_shell_vars(cfg['config_file'])
-    elif 'config_cmd_read' in cfg:
-        vals = read_piaware_config(cfg.get('fields', []))
+    adapter = _config_adapter(cfg)
+    vals = adapter.read(cfg) if adapter else {}
     for fname, fpath in cfg.get('extra_files', {}).items():
-        try: vals[fname] = open(fpath).read().strip()
-        except: vals[fname] = ''
+        vals[fname] = (HOST.read_text(fpath) or '').strip()
     return {field['key']: vals.get(field['key'], field.get('default', '')) for field in cfg.get('fields', [])}
 
 def set_feeder_settings(key, data):
     cfg = FEEDER_CONFIGS.get(key)
     if not cfg: return False, 'Unknown feeder'
-    try:
-        if 'docker_container' in cfg:
-            container = cfg['docker_container']
-            current = read_docker_env(container)
-            current.update({k: v for k, v in data.items() if v != ''})
-            r = HOST.run(['docker', 'inspect', container], timeout=5)
-            info = json.loads(r.out)[0]
-            image = info['Config']['Image']
-            extra_hosts = info['HostConfig'].get('ExtraHosts') or []
-            env_args  = [arg for k, v in current.items() for arg in ['-e', f'{k}={v}']]
-            host_args = [arg for h in extra_hosts for arg in ['--add-host', h]]
-            HOST.run(['docker', 'stop', container], timeout=10)
-            HOST.run(['docker', 'rm',   container], timeout=10)
-            run = HOST.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
-                           + env_args + host_args + [image], timeout=15)
-            if not run.ok:
-                return False, run.err or 'docker run failed'
-            return True, 'Container recreated'
-        elif 'config_file' in cfg:
-            fmt = cfg.get('format', 'ini_flat')
-            writable = {f['key'] for f in cfg.get('fields', []) if not f.get('readonly')}
-            write_data = {k: v for k, v in data.items() if k in writable}
-            if fmt == 'ini_flat':
-                existing = read_flat_ini(cfg['config_file'])
-                existing.update(write_data)
-                write_flat_ini(cfg['config_file'], existing)
-            else:
-                write_shell_vars(cfg['config_file'], write_data)
-            return True, 'Saved'
-        elif cfg.get('write_via_cmd'):
-            for k, v in data.items():
-                if v: HOST.run(['piaware-config', k, v], timeout=5)
-            return True, 'Saved'
+    adapter = _config_adapter(cfg)
+    if not adapter:
         return False, 'No write method defined'
+    try:
+        return adapter.write(cfg, data)
     except Exception as e:
         return False, str(e)
 
