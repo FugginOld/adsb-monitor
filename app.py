@@ -1,6 +1,7 @@
 import configparser
 import subprocess
 import json
+import io
 import os
 import re
 import sqlite3
@@ -440,15 +441,12 @@ def _get_installed_version(key, src):
         txt = HOST.read_text(src['installed_file'])
         return txt.strip() if txt and txt.strip() else None
     if 'installed_cmd' in src:
-        try:
-            r = subprocess.run(src['installed_cmd'], capture_output=True, text=True, timeout=4)
-            text = (r.stdout + r.stderr).strip()
-            if 'installed_re' in src:
-                m = re.search(src['installed_re'], text, re.MULTILINE)
-                if m: return m.group(1).strip()
-            return text.split('\n')[0][:40] if text else None
-        except Exception:
-            return None
+        r = HOST.run(src['installed_cmd'], timeout=4)
+        text = (r.out + r.err).strip()
+        if 'installed_re' in src:
+            m = re.search(src['installed_re'], text, re.MULTILINE)
+            if m: return m.group(1).strip()
+        return text.split('\n')[0][:40] if text else None
     return None
 
 def _get_latest_version(key, src):
@@ -490,26 +488,19 @@ MINI_IDS = {'60a1'}
 R2_IDS   = {'60a8', '0002'}
 
 def detect_airspy_model():
-    try:
-        r = subprocess.run(['lsusb'], capture_output=True, text=True, timeout=5)
-        for line in r.stdout.splitlines():
-            if '1d50' not in line.lower() and 'airspy' not in line.lower():
-                continue
-            m = re.search(r'1d50:([0-9a-f]{4})', line.lower())
-            if m:
-                pid = m.group(1)
-                if pid in MINI_IDS: return 'mini'
-                elif pid in R2_IDS: return 'r2'
-            if 'mini' in line.lower(): return 'mini'
-    except Exception:
-        pass
-    try:
-        r = subprocess.run(['airspy_info'], capture_output=True, text=True, timeout=5)
-        text = (r.stdout + r.stderr).lower()
-        if 'mini' in text: return 'mini'
-        elif 'r2' in text or 'r820' in text: return 'r2'
-    except Exception:
-        pass
+    for line in HOST.run(['lsusb'], timeout=5).out.splitlines():
+        if '1d50' not in line.lower() and 'airspy' not in line.lower():
+            continue
+        m = re.search(r'1d50:([0-9a-f]{4})', line.lower())
+        if m:
+            pid = m.group(1)
+            if pid in MINI_IDS: return 'mini'
+            elif pid in R2_IDS: return 'r2'
+        if 'mini' in line.lower(): return 'mini'
+    info = HOST.run(['airspy_info'], timeout=5)
+    text = (info.out + info.err).lower()
+    if 'mini' in text: return 'mini'
+    elif 'r2' in text or 'r820' in text: return 'r2'
     return 'unknown'
 
 def recommended_sample_rate(model):
@@ -752,10 +743,11 @@ def save_feeders(feeders):
     for f in feeders:
         section = f'{f["kind"]}:{f["key"]}'
         cfg[section] = {'label': f.get('label', f['key']), 'hint': f.get('hint', ''), 'icon': f.get('icon', 'plug')}
-    with open(CONFIG_FILE, 'w') as fh:
-        fh.write('# ADS-B Stack Monitor - Feeder Configuration\n')
-        fh.write('# Section types: [service:<unit>] or [docker:<container>]\n\n')
-        cfg.write(fh)
+    buf = io.StringIO()
+    buf.write('# ADS-B Stack Monitor - Feeder Configuration\n')
+    buf.write('# Section types: [service:<unit>] or [docker:<container>]\n\n')
+    cfg.write(buf)
+    HOST.write_text(CONFIG_FILE, buf.getvalue())
 
 # ── Status ─────────────────────────────────────────────────────────────────
 def systemd_status(service):
