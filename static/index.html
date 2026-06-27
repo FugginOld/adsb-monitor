@@ -909,7 +909,9 @@ async function refreshVersions(e){
   const btn=e.target.closest('button');btn.disabled=true;
   showToast('versions-toast',true,'Checking...');
   try{const r=await fetch('/api/versions/refresh',{method:'POST'}).then(r=>r.json());
-  showToast('versions-toast',r.ok,r.ok?'✓ Versions updated':'✗ Error');
+  const upd=Object.entries(r.versions||{}).filter(([,v])=>v&&v.outdated).map(([k])=>k);
+  const msg=!r.ok?'✗ Error':upd.length?`⬆ Update available: ${upd.join(', ')}`:'✓ All up to date';
+  showToast('versions-toast',r.ok,msg);
   settingsLoaded=false; await loadSettings();}catch(ex){showToast('versions-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }
