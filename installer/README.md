@@ -1,7 +1,25 @@
 # ADS-B Full Stack Installer
 
-A TUI installer suite for a complete ADS-B receiving/feeding station on
-Armbian/Debian (Raspberry Pi 5).
+A TUI installer suite for a complete ADS-B receiving/feeding station. Detects
+your architecture, package manager, and init system at runtime, so it runs on
+most Raspberry Pis, SBCs, and major Linux distros — not just RPi 5 / Debian.
+
+## Supported Platforms
+
+| Platform | Arch | Distro | Init | Status |
+|---|---|---|---|---|
+| Raspberry Pi 5 | ARM64 | RPi OS / Armbian | systemd | supported |
+| Raspberry Pi 4 | ARM64 / ARMhf | RPi OS / Armbian | systemd | supported |
+| Raspberry Pi 3 / Zero 2 W | ARMhf | RPi OS Lite | systemd | supported |
+| Orange Pi 5 / Rock Pi | ARM64 | Armbian (Rockchip) | systemd | supported |
+| Orange Pi / Banana Pi | ARMhf / ARM64 | Armbian (Allwinner) | systemd | supported |
+| Beelink / generic x86 mini-PC | x86_64 | Ubuntu / Debian | systemd | supported |
+| Generic x86 server | x86_64 | Fedora / Arch | systemd | experimental |
+| Generic SBC (Alpine-based) | ARM64 / ARMhf | Alpine Linux | OpenRC | experimental |
+
+The installer reads `/etc/os-release` and warns before continuing on an
+untested distro. **Experimental** means the install logic handles it (package
+manager + init system are auto-detected) but it has had less real-world testing.
 
 ## Scripts
 
@@ -88,6 +106,29 @@ Open the monitor at `http://<pi-ip>:5000` → **Settings** to enter sharing keys
 
 Outputs the detected SDR type, model, decoder, and recommended settings —
 useful for debugging detection before a full install.
+
+## Platform Notes
+
+Per-arch feeder and decoder limitations the installer handles by warning and
+skipping rather than failing:
+
+| Component | arm64 | armhf | amd64 | Note |
+|---|---|---|---|---|
+| `airspy_adsb` | ✅ | ✅ | ✅ | Upstream ships all three |
+| `readsb` / `tar1090` | ✅ | ✅ | ✅ | Built from source |
+| pfclient (Plane Finder) | ✅ | ❌ | ❌ | arm64-only `.deb`; skipped with a warning elsewhere |
+| FR24 feed | ✅ | ✅ | ✅ | `.deb` URL may drift — see Notes below |
+| SDRplay API | ✅ | ✅ | ✅ | Partly manual on all arches |
+
+- **Init system:** systemd hosts get `systemctl enable/start`; OpenRC (Alpine)
+  hosts get the `rc-update add` / `rc-service start` equivalents. Unknown init
+  systems disable service control in the monitor with a clear API error.
+- **Package manager:** auto-detected (`apt`/`dnf`/`yum`/`pacman`/`zypper`/`apk`).
+  Logical package names are mapped per distro (e.g. `whiptail`→`newt` on
+  dnf/apk). If `whiptail` is unavailable the TUI falls back to `dialog`, then
+  plain prompts.
+- **CPU temperature:** read from the first available kernel sensor across RPi,
+  Intel, AMD, Rockchip, and Allwinner keys; absent on some kernels/permissions.
 
 ## Notes
 

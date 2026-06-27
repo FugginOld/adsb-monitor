@@ -233,7 +233,7 @@ fi
 | 5 | Distro compatibility check at installer start | `installer/install-stack.sh` | S | ✅ done (via lib.sh) |
 | 6 | `InitAdapter` in `app.py` | `app.py` | L | ✅ done |
 | 7 | Wire `OpenRCAdapter` (Alpine / minimal SBC support) | `app.py` | M | ✅ done |
-| 8 | Update `installer/README.md` | `installer/README.md` | S | pending |
+| 8 | Update `installer/README.md` | `installer/README.md` | S | ✅ done |
 
 Start with items 1–5 (pure installer / config changes, no `app.py` logic changes).
 Items 6–7 (init adapter) are the largest change and should be TDD'd using the
