@@ -201,8 +201,7 @@ def detect_init(host):
 INIT = detect_init(HOST)
 
 # ── Port tagging ───────────────────────────────────────────────────────────
-import threading as _threading
-_request_port = _threading.local()
+_request_port = threading.local()
 
 def is_readonly():
     return getattr(_request_port, 'port', ADMIN_PORT) == READONLY_PORT
@@ -317,11 +316,6 @@ def get_service_uptime_pct(service, days=7):
         return None
     return fold_uptime(rows, since, now)
 
-def get_uptime_history(service, days=7):
-    """Return raw (ts, status) events for the window (sparkline source)."""
-    now = time.time()
-    return _query_events(service, now - days * 86400, now)
-
 def get_metrics_history(minutes=60):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -343,7 +337,6 @@ def get_docker_uptime_str(container):
         r = HOST.run(['docker', 'inspect', '--format', '{{.State.StartedAt}}', container], timeout=5)
         ts_str = r.out.strip()
         if ts_str:
-            from datetime import datetime
             dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
             elapsed = time.time() - dt.timestamp()
             d, rem = divmod(int(elapsed), 86400)
@@ -578,9 +571,6 @@ def detect_airspy_model():
     if 'mini' in text: return 'mini'
     elif 'r2' in text or 'r820' in text: return 'r2'
     return 'unknown'
-
-def recommended_sample_rate(model):
-    return '6' if model == 'mini' else '12'
 
 def airspy_live_hint():
     try:
@@ -1142,7 +1132,7 @@ def get_airspy():
         settings = parse_airspy_options(HOST.read_text(AIRSPY_DEFAULT) or '')
         model    = detect_airspy_model()
         settings['model'] = model
-        settings['recommended_sample_rate'] = recommended_sample_rate(model)
+        settings['recommended_sample_rate'] = '6' if model == 'mini' else '12'
         return jsonify({'ok': True, 'settings': settings})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -1234,7 +1224,7 @@ def api_logs(key):
 @admin_required
 def api_backup():
     """Download a zip of all config files."""
-    import zipfile, io
+    import zipfile
     buf = io.BytesIO()
     files = {
         'feeders.ini':       CONFIG_FILE,
@@ -1252,20 +1242,10 @@ def api_backup():
                 pass
     buf.seek(0)
     from flask import send_file
-    from datetime import datetime
     fname = f'adsb-config-{datetime.now().strftime("%Y%m%d-%H%M%S")}.zip'
     return send_file(buf, mimetype='application/zip',
                      as_attachment=True, download_name=fname)
 
-
-@app.route('/api/debug-port')
-def debug_port():
-    return jsonify({
-        'tagged_port': getattr(_request_port, 'port', 'not set'),
-        'is_readonly': is_readonly(),
-        'readonly_port': READONLY_PORT,
-        'admin_port': ADMIN_PORT,
-    })
 
 @app.route('/')
 def index():
