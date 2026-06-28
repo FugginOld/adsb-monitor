@@ -1,8 +1,24 @@
 #!/bin/bash
-# ADS-B Full Stack Installer (TUI) with SDR auto-detection
+
+# ─────────────────────────────────────────────────────────────────────────────
+# install-stack.sh — full ADS-B station installer (whiptail TUI).
+#
+# Walks the user through a complete build: detect the SDR, ask for location and
+# gain, pick feeders, then install everything — decoder, readsb + tar1090,
+# graphs1090, the chosen feeders, and finally adsb-monitor itself. The heavy
+# lifting (readsb, decoders, most feeders) is delegated to wiedehopf's and the
+# aggregators' own install scripts; this script orchestrates and configures them.
+#
+# Flow: distro check → SDR detect → TUI prompts → confirm → install [1/6..6/6].
+# Shared helpers (logging, pkg manager, TUI bootstrap, arch) come from lib.sh.
+# `set -uo pipefail`: error on unset vars and surface failures inside pipelines.
+# ─────────────────────────────────────────────────────────────────────────────
+
 set -uo pipefail
 
 STATE_DIR="/tmp/adsb-install"; mkdir -p "$STATE_DIR"
+# Resolve this script's own directory so it can source siblings (lib.sh,
+# detect-sdr.sh) and reach repo files (../app.py) no matter where it's run from.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=installer/lib.sh

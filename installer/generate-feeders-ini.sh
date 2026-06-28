@@ -1,7 +1,17 @@
 #!/bin/bash
-# Generates feeders.ini for adsb-monitor
-# Usage: generate-feeders-ini.sh "flightaware adsbexchange" <decoder>
+
+# ─────────────────────────────────────────────────────────────────────────────
+# generate-feeders-ini.sh — emit a feeders.ini for the monitor's sidebar.
+#
+# Called by install-stack.sh with the chosen decoder and the list of selected
+# feeders; prints the .ini to stdout (the installer redirects it to the file).
+# Maps each selection to a [service:<unit>] or [docker:<container>] section whose
+# unit name MUST match the real installed service so status/logs line up. The
+# decoder card and readsb+tar1090 are always emitted; feeders are appended per choice.
+#   Usage: generate-feeders-ini.sh "flightaware adsbexchange" <decoder>
 #   decoder: airspy_adsb | readsb | sdrplay
+# ─────────────────────────────────────────────────────────────────────────────
+
 SELECTED="$1"
 DECODER="${2:-airspy_adsb}"
 

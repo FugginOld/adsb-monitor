@@ -1,6 +1,16 @@
 #!/bin/bash
-# ADS-B Stack Uninstaller (TUI)
-# Removes adsb-monitor and optionally each stack component
+
+# ─────────────────────────────────────────────────────────────────────────────
+# uninstall.sh — interactive removal of stack components (whiptail TUI).
+#
+# Presents a checklist of everything the installer can put on the box (the
+# monitor, decoder, readsb/tar1090, graphs1090, each feeder) and removes only
+# what's ticked, after a confirm. Each component's case branch stops its service
+# and deletes its files/units; where upstream ships its own uninstaller we call
+# that. Shared system packages (python3, sqlite3, …) are deliberately left alone.
+# Run with sudo.
+# ─────────────────────────────────────────────────────────────────────────────
+
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

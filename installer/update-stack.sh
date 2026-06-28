@@ -1,6 +1,15 @@
 #!/bin/bash
-# ADS-B Stack Updater
-# Updates all wiedehopf components + re-deploys adsb-monitor from this dir
+
+# ─────────────────────────────────────────────────────────────────────────────
+# update-stack.sh — update the SDR stack and re-deploy the monitor (whiptail TUI).
+#
+# Pick which components to update (airspy_adsb, readsb+tar1090, graphs1090, the
+# monitor); each is updated by re-running its upstream installer, except the
+# monitor which is re-copied from this repo checkout. Preserves the monitor's
+# feeders.ini and history.db. Pass --all to update everything non-interactively.
+# Run with sudo. For dashboard-only updates use the repo-root update.sh instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

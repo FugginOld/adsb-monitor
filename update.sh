@@ -1,4 +1,14 @@
 #!/bin/bash
+
+# ─────────────────────────────────────────────────────────────────────────────
+# update.sh — update just the dashboard (app.py + frontend), nothing else.
+#
+# Run after `git pull` from the repo dir. Copies the new code into /opt/adsb-monitor
+# and restarts the service. Deliberately does NOT touch feeders.ini or history.db,
+# so your feeder config and uptime history survive the update.
+# For updating the SDR stack itself (readsb/tar1090/graphs1090) use installer/update-stack.sh.
+# ─────────────────────────────────────────────────────────────────────────────
+
 set -e
 
 DEST=/opt/adsb-monitor

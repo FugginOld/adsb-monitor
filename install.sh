@@ -1,4 +1,15 @@
 #!/bin/bash
+
+# ─────────────────────────────────────────────────────────────────────────────
+# install.sh — minimal "monitor-only" installer.
+#
+# For when you already have readsb + feeders running and just want the dashboard.
+# Copies the app into /opt/adsb-monitor, creates a Python venv with Flask,
+# generates the systemd unit (with this host's IP), and enables the service.
+# For a full SDR-stack install (decoder + feeders + monitor) use installer/install-stack.sh.
+# Run with sudo. `set -e` aborts on the first error so a half-install can't go unnoticed.
+# ─────────────────────────────────────────────────────────────────────────────
+
 set -e
 
 DEST=/opt/adsb-monitor

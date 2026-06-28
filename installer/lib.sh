@@ -1,7 +1,16 @@
 #!/bin/bash
-# Shared helpers for ADS-B stack installer scripts.
-# Source this file; do not execute it directly.
 
+# ─────────────────────────────────────────────────────────────────────────────
+# lib.sh — shared helpers sourced by every installer script.
+#
+# Centralizes the things that must work across distros so the install/update/
+# uninstall scripts stay portable: colored logging (info/ok/warn/err), CPU
+# architecture detection, a package-manager abstraction (apt/dnf/yum/pacman/
+# zypper/apk), a TUI bootstrap (whiptail or a dialog shim), and a distro support
+# check. Source this file — do not execute it directly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Colored status logging used everywhere (==> info, ✓ ok, ⚠ warn, ✗ err).
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info() { echo -e "${BLUE}==>${NC} $1"; }
 ok()   { echo -e "${GREEN}✓${NC} $1"; }
@@ -104,6 +113,8 @@ install_base_deps() {
 # ── TUI bootstrap ───────────────────────────────────────────────────────────
 # Ensures whiptail or dialog is available. Exports a whiptail→dialog shim if
 # whiptail is absent and dialog is present. Returns 1 if neither can be found.
+# ────────────────────────────────────────────────────────────────────────────
+
 ensure_tui() {
     command -v whiptail >/dev/null 2>&1 && return 0
     if command -v dialog >/dev/null 2>&1; then
@@ -125,6 +136,8 @@ ensure_tui() {
 # ── Distro compatibility check ──────────────────────────────────────────────
 # Reads /etc/os-release, prints a support status, and prompts to continue if
 # the distro is experimental or unsupported (unless ADSB_FORCE=1).
+# ────────────────────────────────────────────────────────────────────────────
+
 check_distro_support() {
     local os_id="" os_like="" status=""
     [ -f /etc/os-release ] && . /etc/os-release
