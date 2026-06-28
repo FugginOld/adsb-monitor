@@ -1,4 +1,17 @@
 <!DOCTYPE html>
+<!--
+  ADS-B Stack Monitor — single-page dashboard.
+
+  The entire frontend is this one file: markup + CSS + vanilla JS, no build step
+  and no framework. It talks to the Flask backend (app.py) over its JSON/SSE API
+  and polls /api/status every 30s. Layout is a left sidebar (status cards, metrics,
+  signal panel) plus a main area that swaps between Map / Graphs / Settings views.
+
+  Structure below:
+    <style>  — all styling; CSS variables at the top drive the dark/light themes.
+    <body>   — log modal, sidebar, main views (map iframe, graphs iframe, settings).
+    <script> — theme, status rendering, settings forms, log streaming, init/polling.
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -6,6 +19,10 @@
 <title>ADS-B Stack Monitor</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <style>
+  /* All styling lives here. The :root block defines color variables (surfaces,
+     text, accents, terminal colors); [data-theme="light"] overrides them for
+     light mode, and "auto" follows the OS via color-scheme. Everything else
+     references var(--…) so theming is a single source of truth. */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --bg: #f8f8f6; --surface: #ffffff; --surface2: #f1f0ec; --surface3: #e8e7e3;
@@ -256,6 +273,15 @@
   }
 </style>
 </head>
+<!--
+  Page layout, in source order:
+    - Log modal     — full-screen terminal overlay for per-feeder logs (openLogs).
+    - Sidebar       — alert banner, metrics + sparklines, system stats, signal
+                      panel, and the feeder/service status cards (built by JS).
+    - Main          — toolbar + three swappable views: Map (tar1090 iframe),
+                      Graphs (graphs1090 iframe), and Settings (forms + system log).
+  Most dynamic content is injected by the script; the markup is the static shell.
+-->
 <body>
 
 <!-- Log Modal -->
@@ -519,7 +545,13 @@
 </div>
 
 <script>
+// All client logic. Vanilla JS, no framework. Roughly: theme handling, rendering
+// status/metrics from the API, the Settings forms (read + save), log streaming
+// over SSE, and an init() at the very bottom that wires it up and starts polling.
+
 // ── Theme ──────────────────────────────────────────────────────────────────
+// Cycles auto -> dark -> light, persisted in localStorage; applyTheme sets the
+// data-theme attribute the CSS variables key off.
 let theme = localStorage.getItem('theme') || 'auto';
 function applyTheme(t) {
   if (t === 'auto') document.documentElement.removeAttribute('data-theme');
@@ -535,11 +567,14 @@ function toggleTheme() {
 }
 
 // ── Mobile sidebar ─────────────────────────────────────────────────────────
+// On narrow screens the sidebar slides in/out; this toggles that class.
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('collapsed');
 }
 
 // ── Sparkline ──────────────────────────────────────────────────────────────
+// Draws the little inline trend graphs (aircraft count, message rate) as a raw
+// SVG polyline from a numbers array — no charting library.
 function drawSparkline(svgId, data, color) {
   const svg = document.getElementById(svgId);
   if (!svg || data.length < 2) return;
@@ -555,6 +590,10 @@ function drawSparkline(svgId, data, color) {
 }
 
 // ── Status cards ───────────────────────────────────────────────────────────
+// The heart of the sidebar. makeCard(f) builds one feeder/service card's HTML
+// from an /api/status entry (badge, last-seen, running-for, uptime bars, logs
+// button); uptimePctClass colors the percentage. The load() loop in init()
+// calls these to (re)render the list each poll.
 const CORE_KEYS = ['airspy_adsb','readsb','tar1090'];
 
 function uptimePctClass(pct) {
@@ -712,6 +751,8 @@ async function loadSignalStats() {
 }
 
 // ── Alert banner ───────────────────────────────────────────────────────────
+// Polls /api/alerts and shows/hides the top banner listing any service currently
+// down, so problems are visible without scanning every card.
 async function checkAlerts() {
   try {
     const d = await fetch('/api/alerts').then(r=>r.json());
@@ -727,6 +768,8 @@ async function checkAlerts() {
 }
 
 // ── Gain apply button ──────────────────────────────────────────────────────
+// The "Apply: set gain to N" shortcut shown with the airspy recommendation —
+// posts the suggested gain to the settings API and restarts airspy_adsb.
 let _gainRecommendedValue = null;
 
 async function applyRecommendedGain() {
@@ -752,6 +795,9 @@ async function applyRecommendedGain() {
 }
 
 // ── View toggle ────────────────────────────────────────────────────────────
+// Switches the main area between Map / Graphs / Settings. showView hides the
+// others, marks the active nav button, lazy-loads Settings on first open, and
+// opens/closes the system-log stream as you enter/leave Settings.
 const VIEWS = ['map','graphs','settings'];
 const TLABELS = {
   map:      '<i class="ti ti-map-pin"></i> <span>tar1090 live map</span>',
@@ -769,6 +815,9 @@ function showView(v) {
 }
 
 // ── System log window (Settings) ─────────────────────────────────────────────
+// The embedded terminal at the bottom of Settings. openSysLog opens an SSE stream
+// to /api/syslog (whole-system journal) and appends each line; closeSysLog tears
+// it down when you leave Settings so the connection doesn't leak.
 let sysSSE=null;
 function setSysStatus(text,on){const s=document.getElementById('sys-status-text');if(s)s.textContent=text;const d=document.getElementById('sys-status-dot');if(d)d.className='status-dot'+(on?'':' inactive');}
 function clearSysLog(){const t=document.getElementById('sys-terminal');if(t)t.innerHTML='';}
@@ -792,6 +841,10 @@ function toggleCard(header) {
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
+// Loads every Settings card from the API on first open (loadSettings, guarded by
+// settingsLoaded) and wires the save buttons that POST changes back: airspy gain/
+// rate, receiver lat/lon/range, aircraft-type and uptime panels, version refresh,
+// and config backup download. showToast gives the little inline success/error flash.
 function showToast(id, ok, msg) {
   const el=document.getElementById(id);
   if (!el) return;
@@ -950,6 +1003,9 @@ async function refreshVersions(e){
 }
 
 // ── Feeder connection configs ──────────────────────────────────────────────
+// The per-feeder settings cards (sharing keys, UUIDs, hosts). Fields are described
+// by the backend; renderFeederFields/renderField build the inputs generically,
+// with reveal toggles for secret fields and a collapsible "configure" panel.
 async function loadFeederConfigs(){
   const body=document.getElementById('feeder-settings-body');
   let feeders=[];
@@ -1015,6 +1071,9 @@ async function saveFeederCfg(key,panelId,toastId,e){
 }
 
 // ── Feeder list table ──────────────────────────────────────────────────────
+// Editor for which entries appear in the sidebar (the feeders.ini list). Add/
+// remove rows and save the table back via the API. esc() HTML-escapes user input
+// to prevent markup injection when building rows as strings.
 let feederData=[];
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 async function loadFeedersTable(){
@@ -1045,6 +1104,8 @@ async function saveFeeders(e){
 }
 
 // ── Service restart ────────────────────────────────────────────────────────
+// Builds the row of "restart <service>" buttons in Settings from the feeder list;
+// each posts to the service-control API (admin port only).
 function buildRestartButtons(feeders){
   const c=document.getElementById('restart-btns');
   if(c.children.length>0)return;
@@ -1058,6 +1119,10 @@ async function restartService(key,label,btn){
 }
 
 // ── Log modal ──────────────────────────────────────────────────────────────
+// The per-feeder log viewer (the "logs" button on each card). openLogs opens an
+// SSE stream to /api/logs/<key> and appends lines; classifyLine colors them by
+// severity; autoScroll sticks to the bottom unless you scroll up. Mirrors the
+// system-log window above but for a single service and in a modal overlay.
 let activeSSE=null,autoScroll=true;
 function classifyLine(l){const s=l.toLowerCase();if(/error|fatal|failed|failure|crit/.test(s))return 'err';if(/warn|warning/.test(s))return 'warn';if(/started|success|running|active|connected|ok/.test(s))return 'ok';if(/^\s*$/.test(l))return 'dim';return '';}
 function appendLine(text){const term=document.getElementById('terminal');const div=document.createElement('div');div.className='log-line '+classifyLine(text);div.textContent=text;term.appendChild(div);while(term.children.length>500)term.removeChild(term.firstChild);if(autoScroll)term.scrollTop=term.scrollHeight;}
@@ -1069,6 +1134,9 @@ function scrollToBottom(){const t=document.getElementById('terminal');t.scrollTo
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 // ── Init ───────────────────────────────────────────────────────────────────
+// Entry point, run once on load. Fetches mode (admin vs read-only) and UI config
+// (tar1090/graphs URLs), points the iframes, then defines load() — the 30s poll
+// that refreshes status cards, metrics, alerts, and signal panel — and starts it.
 let TAR1090_URL='',GRAPHS1090_URL='',GRAPHS1090_AIRSPY='',IS_READONLY=false;
 
 async function init(){
