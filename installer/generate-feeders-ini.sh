@@ -14,6 +14,7 @@
 
 SELECTED="$1"
 DECODER="${2:-airspy_adsb}"
+DUAL_BAND="${3:-0}"   # 1 → also emit the dump978 (978 UAT) card
 
 # Header
 cat << 'EOF'
@@ -58,6 +59,17 @@ hint = Web map → :8504
 icon = map
 
 EOF
+
+# dump978 (978 UAT) — only on dual-band installs
+if [ "$DUAL_BAND" = "1" ]; then
+  cat << 'EOF'
+[service:dump978-fa]
+label = dump978 (978 UAT)
+hint = UAT → readsb :30978
+icon = antenna
+
+EOF
+fi
 
 for feeder in $SELECTED; do
   case "$feeder" in

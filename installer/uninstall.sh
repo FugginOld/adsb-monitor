@@ -100,7 +100,9 @@ for target in $TARGETS; do
     dump978)
       info "Removing dump978..."
       remove_service dump978-fa
+      remove_service skyaware978
       pkg_remove dump978-fa
+      pkg_remove skyaware978
       rm -rf /etc/systemd/system/dump978-fa.service.d
       # drop the 978 merge from readsb so it doesn't try to reconnect
       [ -f /etc/default/readsb ] && sed -i 's| *--net-connector 127.0.0.1,30978,uat_in||' /etc/default/readsb

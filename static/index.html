@@ -120,6 +120,11 @@
   .signal-bar.snr   { background: #60a5fa; }
   .signal-bar.noise { background: #f97316; }
   .signal-val { font-size: 10px; color: var(--text2); width: 32px; text-align: right; font-family: monospace; }
+  .band-head { font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .band-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+  .band-dot.up { background: #4ade80; } .band-dot.down { background: #f87171; }
+  .band-sub { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
+  .band-note { font-size: 9px; color: var(--text3); margin-top: 4px; font-style: italic; }
   .gain-rec { font-size: 11px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; display: flex; align-items: center; gap: 5px; }
   .gain-rec.ok      { background: var(--ok-bg);   color: var(--ok-text); }
   .gain-rec.warn    { background: var(--warn-bg);  color: var(--warn-text); }
@@ -369,6 +374,22 @@
     </button>
   </div>
 
+  <!-- 1090 MHz band -->
+  <div class="signal-panel hidden" id="panel-1090">
+    <div class="band-head">1090 MHz ADS-B <span class="band-dot" id="b1090-dot"></span></div>
+    <div class="band-sub"><span id="b1090-ac">—</span> aircraft · <span id="b1090-msg">—</span> msg/s</div>
+    <div class="signal-row"><span class="signal-label">RSSI</span><div class="signal-bar-wrap"><div class="signal-bar rssi" id="b1090-rssi-bar" style="width:0%"></div></div><span class="signal-val" id="b1090-rssi">—</span></div>
+    <div class="signal-row"><span class="signal-label">SNR</span><div class="signal-bar-wrap"><div class="signal-bar snr" id="b1090-snr-bar" style="width:0%"></div></div><span class="signal-val" id="b1090-snr">—</span></div>
+    <div class="signal-row"><span class="signal-label">Noise</span><div class="signal-bar-wrap"><div class="signal-bar noise" id="b1090-noise-bar" style="width:0%"></div></div><span class="signal-val" id="b1090-noise">—</span></div>
+  </div>
+  <!-- 978 MHz band -->
+  <div class="signal-panel hidden" id="panel-978">
+    <div class="band-head">978 MHz UAT <span class="band-dot" id="b978-dot"></span></div>
+    <div class="band-sub"><span id="b978-ac">—</span> aircraft · <span id="b978-msg">—</span> msg/s</div>
+    <div class="signal-row"><span class="signal-label">RSSI</span><div class="signal-bar-wrap"><div class="signal-bar rssi" id="b978-rssi-bar" style="width:0%"></div></div><span class="signal-val" id="b978-rssi">—</span></div>
+    <div class="band-note">SNR / noise floor not reported by dump978</div>
+  </div>
+
   <div><div class="section-label" style="margin-bottom:.35rem">core services</div><div class="cards" id="core-cards"></div></div>
   <div><div class="section-label" style="margin-bottom:.35rem">feeders</div><div class="cards" id="feeder-cards"></div></div>
   <div class="ts" id="ts"></div>
@@ -401,7 +422,7 @@
       <div class="settings-panel">
 
         <!-- Airspy -->
-        <div class="scard">
+        <div class="scard" id="airspy-card">
           <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> Airspy SDR<i class="ti ti-chevron-down chevron"></i></div>
           <div class="scard-body">
             <div style="font-size:12px;color:var(--text2);" id="airspy-model-info">Detecting device...</div>
@@ -718,7 +739,38 @@ async function loadSystemStats() {
   } catch {}
 }
 
+function toggleEl(id, show){ const e=document.getElementById(id); if(e) e.classList.toggle('hidden', !show); }
+
+function setBar(id, val, lo, hi, unit, fixed){
+  const t=document.getElementById(id), b=document.getElementById(id+'-bar');
+  if(val===null||val===undefined){ if(t)t.textContent='—'; if(b)b.style.width='0%'; return; }
+  if(t)t.textContent=val.toFixed(fixed)+unit;
+  if(b)b.style.width=Math.max(0,Math.min(100,(val-lo)/(hi-lo)*100))+'%';
+}
+
+function fillBand(p, d){
+  const dot=document.getElementById(p+'-dot');
+  if(dot) dot.className='band-dot '+(d.active?'up':'down');
+  document.getElementById(p+'-ac').textContent  = (d.aircraft ?? '—');
+  document.getElementById(p+'-msg').textContent = (d.msg_rate ?? '—');
+  setBar(p+'-rssi', d.rssi, -30, 0, ' dBFS', 1);      // dBFS: -30 weak .. 0 max
+  if('snr'   in d) setBar(p+'-snr',   d.snr,   0,  40, ' dB',   1);
+  if('noise' in d) setBar(p+'-noise', d.noise, -50, -15, ' dBFS', 1);
+}
+
+// Dispatcher: show only the bands/decoders actually present. Airspy panel and its
+// settings card appear only when an Airspy is installed; 1090/978 blocks per band.
 async function loadSignalStats() {
+  let bands;
+  try { bands = await fetch('/api/stats/bands').then(r=>r.json()); } catch { return; }
+  toggleEl('signal-panel', bands.has_airspy);
+  toggleEl('airspy-card',  bands.has_airspy);
+  if (bands.has_airspy) loadAirspySignal();
+  toggleEl('panel-1090', !!bands.b1090); if (bands.b1090) fillBand('b1090', bands.b1090);
+  toggleEl('panel-978',  !!bands.b978);  if (bands.b978)  fillBand('b978',  bands.b978);
+}
+
+async function loadAirspySignal() {
   try {
     const d = await fetch('/api/stats/airspy').then(r=>r.json());
     const s = d.stats;

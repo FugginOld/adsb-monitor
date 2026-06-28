@@ -60,6 +60,8 @@ READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
 AIRSPY_DEFAULT = '/etc/default/airspy_adsb'
 READSB_DEFAULT = '/etc/default/readsb'
+DUMP978_DEFAULT  = '/etc/default/dump978-fa'
+SKYAWARE978_JSON = '/run/skyaware978/aircraft.json'
 LOG_LINES      = 100
 
 TAR1090_URL_LOCAL     = os.environ.get('TAR1090_URL_LOCAL',     os.environ.get('TAR1090_URL', ''))
@@ -523,6 +525,63 @@ def get_readsb_deep_stats():
         }
     except Exception:
         return {}
+
+# ── Per-band SDR stats (1090 + 978) ────────────────────────────────────────
+# One status block per receiver band for the sidebar. 1090 comes from readsb's
+# stats.json local block (signal/noise in dBFS → RSSI/SNR/noise) and aircraft.json;
+# 978 comes from skyaware978's aircraft.json (per-aircraft RSSI, message count).
+# dump978 exposes no noise floor, so the 978 block has RSSI but no SNR/noise.
+# ───────────────────────────────────────────────────────────────────────────
+
+# Cumulative UAT message count from the last poll, to derive a per-second rate.
+# ponytail: single-value cache, fine for one monitor process; no locking needed.
+_uat_msg_cache = {'msgs': None, 'now': None}
+
+def _uat_msg_rate(msgs, now):
+    if msgs is None or now is None:
+        return None
+    prev_m, prev_t = _uat_msg_cache['msgs'], _uat_msg_cache['now']
+    _uat_msg_cache['msgs'], _uat_msg_cache['now'] = msgs, now
+    if prev_m is None or prev_t is None or now <= prev_t:
+        return None
+    return round((msgs - prev_m) / (now - prev_t))
+
+def get_band_stats():
+    out = {
+        'has_airspy': os.path.exists(AIRSPY_DEFAULT),
+        'has_readsb': os.path.exists(READSB_DEFAULT),
+        'has_978':    os.path.exists(DUMP978_DEFAULT),
+        'b1090': None, 'b978': None,
+    }
+    uat_count = 0
+    if out['has_978']:
+        sky = HOST.read_json(SKYAWARE978_JSON) or {}
+        acs = [a for a in sky.get('aircraft', []) if a.get('seen', 999) < 60]
+        uat_count = len(acs)
+        rssis = [a['rssi'] for a in acs
+                 if isinstance(a.get('rssi'), (int, float)) and a['rssi'] > -49.4]
+        out['b978'] = {
+            'active':   systemd_status('dump978-fa')[0] == 'ok',
+            'aircraft': uat_count,
+            'rssi':     round(sum(rssis) / len(rssis), 1) if rssis else None,
+            'msg_rate': _uat_msg_rate(sky.get('messages'), sky.get('now')),
+        }
+    if out['has_readsb']:
+        stats = HOST.read_json(os.path.join(READSB_JSON, 'stats.json')) or {}
+        local = stats.get('last1min', {}).get('local', {})
+        signal, noise = local.get('signal'), local.get('noise')
+        ac = HOST.read_json(os.path.join(READSB_JSON, 'aircraft.json')) or {}
+        total_ac = len([a for a in ac.get('aircraft', []) if a.get('seen', 999) < 60])
+        out['b1090'] = {
+            'active':   systemd_status('readsb')[0] == 'ok',
+            'aircraft': max(0, total_ac - uat_count),  # readsb json merges 978 in
+            'msg_rate': round(stats.get('last1min', {}).get('messages_valid', 0) / 60),
+            'rssi':     round(signal, 1) if isinstance(signal, (int, float)) else None,
+            'noise':    round(noise, 1) if isinstance(noise, (int, float)) else None,
+            'snr':      round(signal - noise, 1)
+                        if isinstance(signal, (int, float)) and isinstance(noise, (int, float)) else None,
+        }
+    return out
 
 # ── Version checking ───────────────────────────────────────────────────────
 # Compares the installed version of each stack component against the latest
@@ -1220,6 +1279,10 @@ def api_airspy_stats():
 @app.route('/api/stats/readsb')
 def api_readsb_stats():
     return jsonify(get_readsb_deep_stats())
+
+@app.route('/api/stats/bands')
+def api_band_stats():
+    return jsonify(get_band_stats())
 
 @app.route('/api/stats/aircraft_types')
 def api_aircraft_types():

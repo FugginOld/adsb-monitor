@@ -214,6 +214,10 @@ if [ "$DUAL_BAND" = "1" ]; then
   if git clone --depth 1 https://github.com/flightaware/dump978 /tmp/dump978-build >/dev/null 2>&1 \
      && ( cd /tmp/dump978-build && dpkg-buildpackage -b -uc -us ) >/dev/null 2>&1 \
      && dpkg -i /tmp/dump978-fa_*.deb >/dev/null 2>&1; then
+    # skyaware978 (built alongside dump978-fa) writes /run/skyaware978/aircraft.json
+    # with per-aircraft RSSI — the monitor's 978 status block reads it. Best-effort.
+    dpkg -i /tmp/skyaware978_*.deb >/dev/null 2>&1 || apt-get -fy install >/dev/null 2>&1
+    systemctl enable --now skyaware978 >/dev/null 2>&1 || true
     # Bind the UAT stick. The package's NET_OPTIONS already exposes --raw-port 30978
     # (which readsb ingests); don't repeat it here or dump978 binds the port twice.
     sed -i "s|^RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--sdr driver=rtlsdr,serial=$UAT_SERIAL\"|" /etc/default/dump978-fa
@@ -298,7 +302,7 @@ DEST=/opt/adsb-monitor
 mkdir -p "$DEST/static"
 cp "$SCRIPT_DIR/../app.py" "$DEST/app.py"
 cp "$SCRIPT_DIR/../static/index.html" "$DEST/static/index.html"
-"$SCRIPT_DIR/generate-feeders-ini.sh" "$FEEDERS" "$SDR_DECODER" > "$DEST/feeders.ini"
+"$SCRIPT_DIR/generate-feeders-ini.sh" "$FEEDERS" "$SDR_DECODER" "$DUAL_BAND" > "$DEST/feeders.ini"
 python3 -m venv "$DEST/venv"
 "$DEST/venv/bin/pip" install --quiet flask psutil
 PI_IP=$(hostname -I | awk '{print $1}')
