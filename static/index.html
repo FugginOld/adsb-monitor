@@ -119,10 +119,6 @@
   .vbtn.active { background: var(--text); color: var(--bg); border-color: transparent; }
   .menu-btn { display: none; }
 
-  .timeframe-pills { display: flex; gap: 4px; flex-wrap: wrap; }
-  .pill { font-size: 11px; padding: 3px 7px; border-radius: 5px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; }
-  .pill:hover { background: var(--surface2); }
-  .pill.active { background: var(--text); color: var(--bg); border-color: transparent; }
 
   .fill-frame { flex: 1; width: 100%; border: none; display: block; }
 
@@ -367,9 +363,6 @@
 
   <!-- Graphs -->
   <div id="view-graphs" class="hidden" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="padding:.4rem .75rem;border-bottom:.5px solid var(--border);background:var(--surface);flex-shrink:0;display:flex;align-items:center;justify-content:space-between;">
-      <div class="timeframe-pills" id="pills"></div>
-    </div>
     <iframe class="fill-frame" id="graphs-frame" src="" title="graphs1090"></iframe>
   </div>
 
@@ -1035,12 +1028,6 @@ function clearTerminal(){document.getElementById('terminal').innerHTML='';}
 function scrollToBottom(){const t=document.getElementById('terminal');t.scrollTop=t.scrollHeight;autoScroll=true;}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
-// ── Graphs ─────────────────────────────────────────────────────────────────
-const TIMEFRAMES=['2h','8h','24h','48h','7days','14days','30days'];
-let activeTimeframe='24h';
-function renderPills(){document.getElementById('pills').innerHTML=TIMEFRAMES.map(tf=>`<button class="pill${tf===activeTimeframe?' active':''}" onclick="setTimeframe('${tf}')">${tf}</button>`).join('');}
-function setTimeframe(tf){activeTimeframe=tf;renderPills();document.getElementById('graphs-frame').src=`${GRAPHS1090_URL}/?timeframe=${tf}`;}
-
 // ── Init ───────────────────────────────────────────────────────────────────
 let TAR1090_URL='',GRAPHS1090_URL='',GRAPHS1090_AIRSPY='',IS_READONLY=false;
 
@@ -1051,8 +1038,8 @@ async function init(){
   document.getElementById('map-frame').src=TAR1090_URL;
   const sigLink = document.getElementById('signal-history-link');
   if (sigLink) sigLink.href = GRAPHS1090_AIRSPY;
-  document.getElementById('graphs-frame').src=`${GRAPHS1090_URL}/?timeframe=${activeTimeframe}`;
-  renderPills();load();setInterval(load,30000);
+  document.getElementById('graphs-frame').src=`${GRAPHS1090_URL}/`;
+  load();setInterval(load,30000);
 }
 
 init();
