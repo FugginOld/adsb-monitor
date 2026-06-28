@@ -81,6 +81,7 @@ for target in $TARGETS; do
       rm -f /usr/local/bin/airspy_adsb
       rm -f /etc/default/airspy_adsb
       rm -f /usr/lib/systemd/system/airspy_adsb.service /lib/systemd/system/airspy_adsb.service /etc/systemd/system/airspy_adsb.service
+      rm -rf /etc/systemd/system/airspy_adsb.service.d
       systemctl daemon-reload
       ok "airspy_adsb removed" ;;
     readsb)
@@ -91,6 +92,7 @@ for target in $TARGETS; do
       remove_service readsb
       rm -f /usr/local/bin/readsb
       rm -f /etc/default/readsb
+      rm -rf /etc/systemd/system/readsb.service.d
       rm -rf /usr/local/share/tar1090
       rm -f /etc/lighttpd/conf-enabled/*tar1090*
       systemctl daemon-reload
@@ -99,6 +101,7 @@ for target in $TARGETS; do
       info "Removing dump978..."
       remove_service dump978-fa
       pkg_remove dump978-fa
+      rm -rf /etc/systemd/system/dump978-fa.service.d
       # drop the 978 merge from readsb so it doesn't try to reconnect
       [ -f /etc/default/readsb ] && sed -i 's| *--net-connector 127.0.0.1,30978,uat_in||' /etc/default/readsb
       systemctl restart readsb 2>/dev/null; systemctl daemon-reload

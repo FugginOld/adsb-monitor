@@ -214,8 +214,9 @@ if [ "$DUAL_BAND" = "1" ]; then
   if git clone --depth 1 https://github.com/flightaware/dump978 /tmp/dump978-build >/dev/null 2>&1 \
      && ( cd /tmp/dump978-build && dpkg-buildpackage -b -uc -us ) >/dev/null 2>&1 \
      && dpkg -i /tmp/dump978-fa_*.deb >/dev/null 2>&1; then
-    # Bind the UAT stick; expose raw UAT on 30978 for readsb to ingest.
-    sed -i "s|^RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--sdr driver=rtlsdr,serial=$UAT_SERIAL --raw-port 30978\"|" /etc/default/dump978-fa
+    # Bind the UAT stick. The package's NET_OPTIONS already exposes --raw-port 30978
+    # (which readsb ingests); don't repeat it here or dump978 binds the port twice.
+    sed -i "s|^RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--sdr driver=rtlsdr,serial=$UAT_SERIAL\"|" /etc/default/dump978-fa
     # Merge 978 into readsb so tar1090 shows both bands on one map.
     if grep -q "30978,uat_in" /etc/default/readsb; then :
     elif grep -q '^NET_OPTIONS="' /etc/default/readsb; then
@@ -228,6 +229,20 @@ if [ "$DUAL_BAND" = "1" ]; then
   else
     warn "dump978 build/install failed — 1090 still works; see github.com/flightaware/dump978"
   fi
+fi
+
+# In a container (LXC) there's usually no udev to apply the rtl-sdr rules that
+# grant the service user USB access, so the decoders run as root or they can't
+# open the dongles ("unable to read device details"). Pin the SDR services to root.
+if systemd-detect-virt --container >/dev/null 2>&1; then
+  for _svc in readsb dump978-fa airspy_adsb; do
+    systemctl cat "$_svc" >/dev/null 2>&1 || continue
+    mkdir -p "/etc/systemd/system/$_svc.service.d"
+    printf '[Service]\nUser=root\nGroup=root\n' > "/etc/systemd/system/$_svc.service.d/root.conf"
+  done
+  systemctl daemon-reload
+  for _svc in readsb dump978-fa airspy_adsb; do systemctl restart "$_svc" 2>/dev/null; done
+  ok "Container detected — SDR services pinned to root (no udev)"
 fi
 
 info "[3/6] Installing graphs1090..."
