@@ -1126,6 +1126,80 @@ def write_receiver_options(text, new_settings):
         out.append(line)
     return '\n'.join(out) + '\n'
 
+# ── Per-SDR gain + bias-tee (1090 readsb / 978 dump978) ────────────────────
+# Gain and bias-tee for each RTL stick. 1090 gain is readsb's --gain (auto or a
+# dB number); 978 gain is dump978's --sdr-gain (a number, or 'max' = no flag).
+# Bias-tee differs: readsb has no flag, so 1090 uses an rtl_biast ExecStartPre
+# drop-in (resolves the stick by serial, powers the LNA before readsb opens it);
+# 978 uses SoapySDR's biastee=true device arg. Bias-tee feeds DC up the coax —
+# only enable it with an inline LNA that expects it.
+# ───────────────────────────────────────────────────────────────────────────
+
+BIASTEE_1090_CONF = '/etc/systemd/system/readsb.service.d/biastee.conf'
+
+def _opt_in_receiver(text, flag):
+    for line in text.splitlines():
+        if 'RECEIVER_OPTIONS' in line:
+            m = re.search(rf'{flag}[ =]([^\s"]+)', line)
+            if m: return m.group(1)
+    return None
+
+def parse_sdr1090():
+    text = HOST.read_text(READSB_DEFAULT) or ''
+    return {'gain': _opt_in_receiver(text, '--gain') or 'auto',
+            'biastee': os.path.exists(BIASTEE_1090_CONF)}
+
+def _set_receiver_flag(text, flag, value):
+    """Set/replace `flag value` inside RECEIVER_OPTIONS="...". value None removes it."""
+    out = []
+    for line in text.splitlines():
+        if 'RECEIVER_OPTIONS' in line:
+            line = re.sub(rf'\s*{flag}[ =][^\s"]+', '', line)
+            if value is not None:
+                line = line.rstrip('"').rstrip() + f' {flag} {value}"'
+        out.append(line)
+    return '\n'.join(out) + '\n'
+
+def write_sdr1090(gain, biastee):
+    text = HOST.read_text(READSB_DEFAULT) or ''
+    HOST.write_text(READSB_DEFAULT, _set_receiver_flag(text, '--gain', gain or 'auto'))
+    serial = _opt_in_receiver(text, '--device') or ''
+    if biastee:
+        if serial:
+            pre = (f'/bin/sh -c "for i in 0 1 2 3; do rtl_eeprom -d $i 2>/dev/null '
+                   f'| grep -q {serial} && {{ rtl_biast -d $i -b 1; break; }}; done; true"')
+        else:
+            pre = '/bin/sh -c "rtl_biast -d 0 -b 1; true"'
+        HOST.run(['mkdir', '-p', os.path.dirname(BIASTEE_1090_CONF)])
+        HOST.write_text(BIASTEE_1090_CONF, f'[Service]\nExecStartPre={pre}\n')
+    else:
+        HOST.run(['rm', '-f', BIASTEE_1090_CONF])
+    HOST.run(['systemctl', 'daemon-reload'])
+
+def parse_sdr978():
+    text = HOST.read_text(DUMP978_DEFAULT) or ''
+    gain, biastee = 'max', False
+    for line in text.splitlines():
+        if 'RECEIVER_OPTIONS' in line:
+            m = re.search(r'--sdr-gain[ =]([^\s"]+)', line)
+            if m: gain = m.group(1)
+            if 'biastee=true' in line: biastee = True
+    return {'gain': gain, 'biastee': biastee}
+
+def write_sdr978(gain, biastee):
+    text = HOST.read_text(DUMP978_DEFAULT) or ''
+    out = []
+    for line in text.splitlines():
+        if 'RECEIVER_OPTIONS' in line:
+            line = re.sub(r'\s*--sdr-gain[ =][^\s"]+', '', line)
+            if gain and gain not in ('max', 'auto'):
+                line = line.rstrip('"').rstrip() + f' --sdr-gain {gain}"'
+            line = line.replace(',biastee=true', '')
+            if biastee:
+                line = re.sub(r'(--sdr driver=rtlsdr,serial=[^\s",]+)', r'\1,biastee=true', line)
+        out.append(line)
+    HOST.write_text(DUMP978_DEFAULT, '\n'.join(out) + '\n')
+
 # ── Log streaming ──────────────────────────────────────────────────────────
 # Streams live logs to the browser via Server-Sent Events. `_log_command` builds
 # the follow command (`journalctl -u <unit> -f` for services, `docker logs -f`
@@ -1378,6 +1452,37 @@ def set_receiver():
         return jsonify({'ok': ok, 'output': out})
     except Exception:
         logger.exception("Failed to update receiver settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
+
+@app.route('/api/settings/sdr/<band>', methods=['GET'])
+@admin_required
+def get_sdr(band):
+    try:
+        if band == '1090': return jsonify({'ok': True, 'settings': parse_sdr1090()})
+        if band == '978':  return jsonify({'ok': True, 'settings': parse_sdr978()})
+        return jsonify({'ok': False, 'error': 'unknown band'}), 404
+    except Exception:
+        logger.exception("Failed to read SDR settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
+
+@app.route('/api/settings/sdr/<band>', methods=['POST'])
+@admin_required
+def set_sdr(band):
+    try:
+        d = request.get_json() or {}
+        gain = str(d.get('gain', 'auto')).strip()
+        biastee = bool(d.get('biastee', False))
+        if band == '1090':
+            write_sdr1090(gain, biastee)
+            ok, out = service_action('readsb', 'restart')
+        elif band == '978':
+            write_sdr978(gain, biastee)
+            ok, out = service_action('dump978-fa', 'restart')
+        else:
+            return jsonify({'ok': False, 'error': 'unknown band'}), 404
+        return jsonify({'ok': ok, 'output': out})
+    except Exception:
+        logger.exception("Failed to update SDR settings")
         return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
 
 @app.route('/api/settings/feeders', methods=['GET'])

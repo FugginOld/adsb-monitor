@@ -295,6 +295,7 @@
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-terminal-2"></i><span id="modal-title-text">Logs</span></div>
       <div class="modal-actions">
+        <button class="modal-btn" onclick="copyLogs('terminal',this)"><i class="ti ti-copy"></i> Copy</button>
         <button class="modal-btn" onclick="clearTerminal()"><i class="ti ti-eraser"></i> Clear</button>
         <button class="modal-btn" onclick="scrollToBottom()"><i class="ti ti-arrow-down"></i> Bottom</button>
         <button class="modal-btn danger" onclick="closeModal()"><i class="ti ti-x"></i></button>
@@ -470,6 +471,46 @@
           </div>
         </div>
 
+        <!-- 1090 SDR (RTL-SDR via readsb) -->
+        <div class="scard hidden" id="sdr1090-card">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> 1090 SDR (RTL-SDR)<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body">
+            <div class="field" style="max-width:220px">
+              <div class="field-label">Gain &nbsp;<button type="button" style="font-size:10px;padding:1px 7px;border-radius:5px;border:.5px solid var(--border);background:var(--blue-bg);color:var(--blue);cursor:pointer;" onclick="document.getElementById('sdr1090-gain').value='auto'">auto</button></div>
+              <input type="text" id="sdr1090-gain" placeholder="auto or 0–49.6">
+              <div class="field-hint">'auto' = readsb adaptive gain, or a fixed dB value.</div>
+            </div>
+            <label class="field" style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;max-width:320px">
+              <input type="checkbox" id="sdr1090-biastee" onchange="confirmBiasTee(this)" style="width:auto">
+              <span><strong>Bias-tee</strong> — feed 4.5V to power an inline LNA</span>
+            </label>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveSdr('1090',event)"><i class="ti ti-device-floppy"></i> Save &amp; restart readsb</button>
+              <span class="toast" id="sdr1090-toast"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 978 SDR (RTL-SDR via dump978) -->
+        <div class="scard hidden" id="sdr978-card">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> 978 SDR (UAT / dump978)<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body">
+            <div class="field" style="max-width:220px">
+              <div class="field-label">Gain &nbsp;<button type="button" style="font-size:10px;padding:1px 7px;border-radius:5px;border:.5px solid var(--border);background:var(--blue-bg);color:var(--blue);cursor:pointer;" onclick="document.getElementById('sdr978-gain').value='max'">max</button></div>
+              <input type="text" id="sdr978-gain" placeholder="max or 0–49.6">
+              <div class="field-hint">dump978 has no adaptive auto; 'max' uses full gain (default).</div>
+            </div>
+            <label class="field" style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;max-width:320px">
+              <input type="checkbox" id="sdr978-biastee" onchange="confirmBiasTee(this)" style="width:auto">
+              <span><strong>Bias-tee</strong> — feed 4.5V to power an inline LNA</span>
+            </label>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveSdr('978',event)"><i class="ti ti-device-floppy"></i> Save &amp; restart dump978</button>
+              <span class="toast" id="sdr978-toast"></span>
+            </div>
+          </div>
+        </div>
+
         <!-- Aircraft type breakdown -->
         <div class="scard">
           <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-chart-donut icon"></i> Aircraft type breakdown<i class="ti ti-chevron-down chevron"></i></div>
@@ -552,6 +593,7 @@
                 <div class="status-dot inactive" id="sys-status-dot"></div>
                 <span id="sys-status-text">Idle</span>
                 <span style="margin-left:auto;display:flex;gap:8px;">
+                  <button class="modal-btn" onclick="copyLogs('sys-terminal',this)"><i class="ti ti-copy"></i> Copy</button>
                   <button class="modal-btn" onclick="clearSysLog()"><i class="ti ti-eraser"></i> Clear</button>
                   <button class="modal-btn" onclick="openSysLog()"><i class="ti ti-refresh"></i> Reconnect</button>
                 </span>
@@ -768,6 +810,8 @@ async function loadSignalStats() {
   if (bands.has_airspy) loadAirspySignal();
   toggleEl('panel-1090', !!bands.b1090); if (bands.b1090) fillBand('b1090', bands.b1090);
   toggleEl('panel-978',  !!bands.b978);  if (bands.b978)  fillBand('b978',  bands.b978);
+  toggleEl('sdr1090-card', bands.has_readsb);  // settings cards: only for present SDRs
+  toggleEl('sdr978-card',  bands.has_978);
 }
 
 async function loadAirspySignal() {
@@ -926,6 +970,7 @@ let settingsLoaded=false;
 async function loadSettings() {
   if (settingsLoaded) return;
   settingsLoaded=true;
+  loadSdrSettings();   // 1090 / 978 gain + bias-tee
   // Airspy
   try {
     const r=await fetch('/api/settings/airspy').then(r=>r.json());
@@ -1058,6 +1103,36 @@ async function saveReceiver(e){
   const btn=e.target.closest('button');btn.disabled=true;
   try{const r=await fetch('/api/settings/receiver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:document.getElementById('recv-lat').value,lon:document.getElementById('recv-lon').value,max_range:document.getElementById('recv-range').value})}).then(r=>r.json());
   showToast('recv-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}catch(ex){showToast('recv-toast',false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+// Bias-tee sends DC up the coax — confirm before arming, revert the box if declined.
+function confirmBiasTee(cb){
+  if(!cb.checked) return;
+  const ok=confirm('Enable bias-tee?\n\nThis feeds ~4.5V DC up the antenna coax to power an inline LNA. '
+    +'Only enable it if you have an LNA/filter that expects bias-tee power. Feeding DC into '
+    +'gear that does not (or a DC short) can damage the SDR or hardware.\n\nEnable it?');
+  if(!ok) cb.checked=false;
+}
+
+async function loadSdrSettings(){
+  for(const band of ['1090','978']){
+    try{
+      const r=await fetch('/api/settings/sdr/'+band).then(r=>r.json());
+      if(!r.ok) continue;
+      document.getElementById('sdr'+band+'-gain').value=r.settings.gain;
+      document.getElementById('sdr'+band+'-biastee').checked=!!r.settings.biastee;
+    }catch{}
+  }
+}
+
+async function saveSdr(band,e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  try{const r=await fetch('/api/settings/sdr/'+band,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({gain:document.getElementById('sdr'+band+'-gain').value,
+                         biastee:document.getElementById('sdr'+band+'-biastee').checked})}).then(r=>r.json());
+  showToast('sdr'+band+'-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}
+  catch(ex){showToast('sdr'+band+'-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }
 
@@ -1207,6 +1282,17 @@ function appendLine(text){const term=document.getElementById('terminal');const d
 function openLogs(key,label){closeModal();document.getElementById('modal-title-text').textContent=label+' — logs';document.getElementById('terminal').innerHTML='';document.getElementById('status-text').textContent='Connecting...';document.getElementById('status-dot').className='status-dot inactive';document.getElementById('modal').classList.add('open');autoScroll=true;const term=document.getElementById('terminal');term.onscroll=()=>{autoScroll=term.scrollTop+term.clientHeight>=term.scrollHeight-20;};const es=new EventSource(`/api/logs/${encodeURIComponent(key)}`);activeSSE=es;es.onopen=()=>{document.getElementById('status-dot').className='status-dot';document.getElementById('status-text').textContent=`Streaming: ${label}`;};es.onmessage=e=>{try{appendLine(JSON.parse(e.data));}catch{appendLine(e.data);}};es.onerror=()=>{document.getElementById('status-dot').className='status-dot inactive';document.getElementById('status-text').textContent='Stream closed';es.close();};}
 function closeModal(){if(activeSSE){activeSSE.close();activeSSE=null;}document.getElementById('modal').classList.remove('open');}
 function closeModalOnOverlay(e){if(e.target===document.getElementById('modal'))closeModal();}
+function copyLogs(termId,btn){
+  const t=document.getElementById(termId); if(!t) return;
+  const text=t.innerText;
+  const done=ok=>{const o=btn.innerHTML;btn.innerHTML='<i class="ti ti-'+(ok?'check':'x')+'"></i> '+(ok?'Copied':'Failed');setTimeout(()=>btn.innerHTML=o,1500);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));
+  }else{
+    const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');done(true);}catch{done(false);}document.body.removeChild(ta);
+  }
+}
 function clearTerminal(){document.getElementById('terminal').innerHTML='';}
 function scrollToBottom(){const t=document.getElementById('terminal');t.scrollTop=t.scrollHeight;autoScroll=true;}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
