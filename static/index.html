@@ -198,6 +198,9 @@
   .status-bar { padding: 0.4rem 1.25rem; font-size: 11px; color: var(--term-dim); border-top: 0.5px solid rgba(255,255,255,0.06); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; flex-shrink: 0; }
   .status-dot.inactive { background: #6b6b68; }
+  /* Embedded system-log terminal in Settings (reuses dark .terminal styles) */
+  .sys-term-wrap { background: var(--term-bg); border-radius: 0 0 12px 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .sys-term-wrap .terminal { height: 280px; flex: none; }
 
   /* Compact uptime bars on card */
   .card-uptime-bars { display: flex; gap: 2px; margin-top: 4px; }
@@ -492,6 +495,24 @@
           </div>
         </div>
 
+        <!-- System log -->
+        <div class="scard">
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-terminal-2 icon"></i> System log<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-body" style="padding:0;gap:0;">
+            <div class="sys-term-wrap">
+              <div class="terminal" id="sys-terminal"></div>
+              <div class="status-bar">
+                <div class="status-dot inactive" id="sys-status-dot"></div>
+                <span id="sys-status-text">Idle</span>
+                <span style="margin-left:auto;display:flex;gap:8px;">
+                  <button class="modal-btn" onclick="clearSysLog()"><i class="ti ti-eraser"></i> Clear</button>
+                  <button class="modal-btn" onclick="openSysLog()"><i class="ti ti-refresh"></i> Reconnect</button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -743,8 +764,27 @@ function showView(v) {
   document.querySelectorAll('.vbtn').forEach(b=>b.classList.remove('active'));
   document.getElementById('btn-'+v).classList.add('active');
   document.getElementById('toolbar-label').innerHTML=TLABELS[v]||'';
-  if (v==='settings') loadSettings();
+  if (v==='settings') { loadSettings(); openSysLog(); }
+  else closeSysLog();
 }
+
+// ── System log window (Settings) ─────────────────────────────────────────────
+let sysSSE=null;
+function setSysStatus(text,on){const s=document.getElementById('sys-status-text');if(s)s.textContent=text;const d=document.getElementById('sys-status-dot');if(d)d.className='status-dot'+(on?'':' inactive');}
+function clearSysLog(){const t=document.getElementById('sys-terminal');if(t)t.innerHTML='';}
+function openSysLog(){
+  closeSysLog();
+  const term=document.getElementById('sys-terminal');if(!term)return;
+  term.innerHTML='';setSysStatus('Connecting…',false);
+  const es=new EventSource('/api/syslog');sysSSE=es;
+  es.onopen=()=>setSysStatus('Streaming system journal',true);
+  es.onmessage=e=>{let t;try{t=JSON.parse(e.data);}catch{t=e.data;}
+    const d=document.createElement('div');d.className='log-line '+classifyLine(t);d.textContent=t;
+    term.appendChild(d);while(term.children.length>500)term.removeChild(term.firstChild);
+    term.scrollTop=term.scrollHeight;};
+  es.onerror=()=>{setSysStatus('Stream closed',false);es.close();sysSSE=null;};
+}
+function closeSysLog(){if(sysSSE){sysSSE.close();sysSSE=null;}}
 
 function toggleCard(header) {
   header.classList.toggle('collapsed');

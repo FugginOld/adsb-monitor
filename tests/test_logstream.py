@@ -24,7 +24,9 @@ def test_sse_json_escapes():
 # ── _log_command resolver (kills the kind-ternary) ───────────────────────────
 def test_log_command_service():
     cmd = appmod._log_command({'key': 'readsb', 'kind': 'service'})
-    assert cmd[:3] == ['journalctl', '-u', 'readsb']
+    # line-buffered via stdbuf so quiet units still stream
+    assert cmd[:3] == ['stdbuf', '-oL', '-eL']
+    assert cmd[3:6] == ['journalctl', '-u', 'readsb']
     assert '-f' in cmd
 
 

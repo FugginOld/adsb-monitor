@@ -926,23 +926,42 @@ def _sse(text):
     """Frame one line of text as a Server-Sent Events data message."""
     return f"data: {json.dumps(text)}\n\n"
 
+def _journalctl(*unit_args):
+    """Follow-logs journalctl invocation. stdbuf -oL forces line-buffered output:
+    journalctl block-buffers when its stdout is a pipe (non-tty), so quiet units
+    never flush and the stream looks like it never connected. coreutils stdbuf
+    ships on every systemd host."""
+    return ['stdbuf', '-oL', '-eL',
+            'journalctl', *unit_args, '-f', '-n', str(LOG_LINES), '--no-pager', '--output=short-iso']
+
 def _log_command(feeder):
     """The follow-logs command for a Feeder — the single kind-dispatch for logs."""
     if feeder['kind'] == 'docker':
         return ['docker', 'logs', '-f', '--tail', str(LOG_LINES), '--timestamps', feeder['key']]
-    return ['journalctl', '-u', feeder['key'], '-f', '-n', str(LOG_LINES), '--no-pager', '--output=short-iso']
+    return _journalctl('-u', feeder['key'])
 
 def stream_logs(cmd):
     """Spawn a follow-logs process and yield its lines as SSE frames."""
+    proc = None
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        yield _sse('[connected]')
         for line in proc.stdout:
             yield _sse(line.rstrip())
-    except GeneratorExit: proc.kill()
-    except Exception as e: yield _sse(f'[error] {e}')
+        # stdout closed = the follow process exited on its own (unknown unit, no
+        # container, journalctl/docker missing). Surface it instead of looking idle.
+        code = proc.wait()
+        if code:
+            yield _sse(f'[stream ended — exit {code}; unit may have no journal or not exist]')
+    except GeneratorExit:
+        if proc: proc.kill()
+    except Exception as e:
+        yield _sse(f'[error] {e}')
     finally:
-        try: proc.kill()
-        except: pass
+        if proc:
+            try: proc.kill()
+            except Exception: pass
 
 # ── Background poller ──────────────────────────────────────────────────────
 def background_poll():
@@ -1177,6 +1196,14 @@ def api_logs(key):
         return Response('data: {"error": "unknown service"}\n\n', status=404, mimetype='text/event-stream')
     entry = cfg[key]
     gen = stream_logs(_log_command(entry))
+    return Response(stream_with_context(gen), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+@app.route('/api/syslog')
+@admin_required
+def api_syslog():
+    """Stream the whole-system journal (all units) for the Settings log window."""
+    gen = stream_logs(_journalctl())
     return Response(stream_with_context(gen), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
