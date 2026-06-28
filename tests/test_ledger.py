@@ -25,7 +25,8 @@ def _seed(events):
 def test_query_events_filters_to_window(ledger_db):
     _seed([(100, 'ok'), (200, 'error'), (300, 'ok')])
     rows = appmod._query_events('readsb', 150, 250)
-    assert rows == [(200, 'error')]
+    # in-window event (200,'error'), prefixed with the seed (last event < 150)
+    assert rows == [(100, 'ok'), (200, 'error')]
 
 
 def test_query_events_includes_endpoints(ledger_db):
@@ -54,3 +55,12 @@ def test_uptime_bars_returns_one_entry_per_day(ledger_db):
     assert len(bars) == 7
     # no events -> each day folds to 0.0 (not None)
     assert all(b == 0.0 for b in bars)
+
+
+def test_uptime_bars_seed_fills_old_days(ledger_db):
+    # Regression: service went 'ok' 30 days ago with no changes since. Every day
+    # in the 7-day window must read 100% — not just the day next to the event.
+    now = time.time()
+    _seed([(now - 30 * DAY, 'ok')])
+    bars = appmod.get_uptime_bars('readsb', days=7)
+    assert all(b == 100.0 for b in bars)

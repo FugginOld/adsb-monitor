@@ -239,14 +239,21 @@ def fold_uptime(rows, start, end):
     return round(min(100, up / span * 100), 1) if span > 0 else None
 
 def _query_events(service, start, end):
-    """All (ts, status) events for a service in [start, end], oldest first."""
+    """All (ts, status) events for a service in [start, end], oldest first,
+    prefixed with the last event before `start` so fold_uptime can seed the
+    window's starting status. Without this seed, a continuously-up service
+    (one old event, no changes) shows 0% for every day except the one next to
+    that event."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts >= ? AND ts <= ? ORDER BY ts ASC',
               (service, start, end))
     rows = c.fetchall()
+    c.execute('SELECT ts, status FROM service_events WHERE service=? AND ts < ? ORDER BY ts DESC LIMIT 1',
+              (service, start))
+    seed = c.fetchone()
     conn.close()
-    return rows
+    return ([seed] + rows) if seed else rows
 
 # ── SQLite history ─────────────────────────────────────────────────────────
 def init_db():
@@ -302,8 +309,7 @@ def get_uptime_bars(service, days=7):
     for day_offset in range(days - 1, -1, -1):
         day_start = now - (day_offset + 1) * 86400
         day_end   = now - day_offset * 86400
-        # query one day back so the fold can seed the day's starting status
-        rows = _query_events(service, day_start - 86400, day_end)
+        rows = _query_events(service, day_start, day_end)
         bars.append(fold_uptime(rows, day_start, day_end))
     return bars
 
@@ -1100,7 +1106,7 @@ def api_uptime_history():
         for day_offset in range(days - 1, -1, -1):
             day_start = now - (day_offset + 1) * 86400
             day_end   = now - day_offset * 86400
-            rows = _query_events(key, day_start - 86400, day_end)
+            rows = _query_events(key, day_start, day_end)
             pct  = fold_uptime(rows, day_start, day_end)
             from datetime import datetime
             day_label = datetime.fromtimestamp(day_start + 43200).strftime('%m/%d')
