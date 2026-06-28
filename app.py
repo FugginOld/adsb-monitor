@@ -1319,8 +1319,9 @@ def set_feeders():
     try:
         save_feeders(request.get_json().get('feeders', []))
         return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
+    except Exception:
+        app.logger.exception("Failed to save feeders")
+        return jsonify({'ok': False, 'error': 'An internal error occurred'})
 
 @app.route('/api/settings/feeder/<key>', methods=['GET'])
 @admin_required
@@ -1340,8 +1341,9 @@ def set_feeder_cfg(key):
             if key in fmap and fmap[key]['kind'] == 'service':
                 service_action(key, 'restart')
         return jsonify({'ok': ok, 'message': msg})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
+    except Exception:
+        app.logger.exception("Failed to update feeder config for key=%s", key)
+        return jsonify({'ok': False, 'error': 'An internal error occurred'})
 
 @app.route('/api/service/<name>/restart', methods=['POST'])
 @admin_required
