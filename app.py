@@ -1,3 +1,27 @@
+"""ADS-B Stack Health Monitor — single-file Flask backend.
+
+Serves a one-page dashboard (static/index.html) plus a JSON/SSE API that reports
+on a local ADS-B receiving station: the SDR decoder (readsb / airspy_adsb), the
+live map (tar1090) and graphs (graphs1090), and every feeder that ships data to
+networks like FlightAware, FR24, ADSBExchange, etc.
+
+The whole app is intentionally one file. Reading top to bottom, the sections are:
+  - Host adapter      — the single seam to the OS (subprocess + file IO), so the
+                        rest of the code is unit-testable with a fake host.
+  - Init adapter      — abstracts systemd vs OpenRC vs no-init service control.
+  - Uptime ledger     — pure uptime math over recorded status-change events.
+  - SQLite history    — persists service up/down events and rolling metrics.
+  - Readers           — last-seen, airspy signal, system + readsb stats, versions.
+  - Feeder configs    — declarative table of how to read/write each feeder's config.
+  - Status / probe    — turns all of the above into a per-feeder health record.
+  - Settings writers  — apply edits back to the underlying config files / units.
+  - Log streaming     — follow journalctl / docker logs as Server-Sent Events.
+  - Background poller  — records status + metrics to SQLite every 30s.
+  - Routes            — the HTTP API the frontend calls.
+
+Two ports run the same app: an admin port (full access) and a read-only port
+(status/stats only). See `is_readonly` / `admin_required`.
+"""
 import configparser
 import subprocess
 import json
@@ -15,9 +39,16 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, send_from_directory, Response, stream_with_context, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+# ProxyFix trusts one layer of X-Forwarded-* headers so links/IPs are correct
+# when the app sits behind a reverse proxy (nginx, Caddy, NPM).
 app = Flask(__name__, static_folder='static')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
+# ── Paths & runtime config ───────────────────────────────────────────────────
+# Where things live on the host. feeders.ini and history.db sit next to this
+# file in /opt/adsb-monitor; the /run and /etc paths are written by the SDR stack.
+# The URL/port values come from the systemd unit's Environment= lines (generated
+# at install time) and fall back to sane defaults when unset.
 CONFIG_FILE    = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
 READSB_JSON    = '/run/readsb'
@@ -34,6 +65,11 @@ ADMIN_PORT    = int(os.environ.get('ADMIN_PORT',    '5000'))
 READONLY_PORT = int(os.environ.get('READONLY_PORT', '5001'))
 
 # ── Host adapter ───────────────────────────────────────────────────────────
+# The ONE place the app talks to the operating system: running commands and
+# reading/writing files. Every other function goes through the `HOST` singleton
+# instead of calling subprocess/open directly. That single seam is what lets the
+# test suite swap in a FakeHost and exercise all the logic without a real Linux
+# box. `Result` is a tiny value object bundling (exit code, stdout, stderr).
 # The seam between business logic and the Linux host. See CONTEXT.md ("Host").
 # Never raises: failures degrade to Result(ok=False) / None, mirroring this
 # monitor's everything-degrades-gracefully behaviour. Swap `HOST` in tests.
@@ -71,6 +107,13 @@ class LinuxHost:
 HOST = LinuxHost()
 
 # ── Init system adapter ────────────────────────────────────────────────────
+# Different distros control services differently: systemd uses `systemctl`,
+# Alpine/minimal SBCs use OpenRC's `rc-service`, and some hosts have neither.
+# Each adapter exposes the same three operations — status / action (start, stop,
+# restart) / running_since — so the rest of the app never branches on init system.
+# `detect_init` probes the host once at startup and picks the right one; the
+# chosen adapter is the `INIT` singleton. NullAdapter is the graceful fallback
+# (monitor-only mode) that reports "service control unavailable".
 # Abstracts systemctl (systemd) vs rc-service (OpenRC) vs unknown.
 # Swap INIT in tests via monkeypatch or the fake_init fixture.
 
@@ -153,6 +196,11 @@ def detect_init(host):
 INIT = detect_init(HOST)
 
 # ── Port tagging ───────────────────────────────────────────────────────────
+# The same app serves two ports: the admin port (full control) and the
+# read-only port (status/stats only, safe to expose publicly behind a proxy).
+# A per-request thread-local records which port the request arrived on;
+# `is_readonly` reads it and the `@admin_required` decorator rejects writes that
+# come in on the read-only port with a 403.
 _request_port = threading.local()
 
 def is_readonly():
@@ -168,6 +216,13 @@ def admin_required(f):
     return decorated
 
 # ── Uptime ledger ──────────────────────────────────────────────────────────
+# Uptime is computed from a log of status *changes* (see SQLite history below):
+# we only store a row when a service flips ok<->error, not every poll. To get the
+# uptime % over any window, `fold_uptime` walks those events and sums the time
+# spent in 'ok'. It's a pure function (no DB, no clock) so it's trivially testable.
+# `_query_events` fetches the events for a window AND the last event just before
+# it — that pre-window "seed" is essential: a service that's been up for days has
+# no events inside a recent window, and without the seed it would wrongly read 0%.
 # The pure uptime math + the service_events query, shared by every uptime view.
 # See CONTEXT.md ("Uptime ledger"). fold_uptime is pure — testable with no DB.
 def fold_uptime(rows, start, end):
@@ -208,6 +263,15 @@ def _query_events(service, start, end):
     return ([seed] + rows) if seed else rows
 
 # ── SQLite history ─────────────────────────────────────────────────────────
+# Persistence layer (history.db). Two tables:
+#   service_events — one row per status change, the source for the uptime ledger.
+#                    Kept ~10 years; `record_service_event` only inserts when the
+#                    status actually differs from the last recorded one.
+#   metrics        — rolling aircraft count / message rate / range, sampled every
+#                    30s by the background poller, pruned to ~25h (sparkline data).
+# The get_* helpers here turn stored rows into the shapes the API/UI want:
+# per-day bars, an aggregate %, a metrics time series, and human "running for"
+# strings (the last two read live from the init system, not the DB).
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -312,6 +376,10 @@ def get_docker_uptime_str(container):
     return None
 
 # ── Feeder last-seen ───────────────────────────────────────────────────────
+# "Last seen" = how long ago a feeder last actually produced output, which is a
+# better health signal than "is the service running". Most feeders expose a status
+# JSON whose modification time we read (FEEDER_STATUS_FILES); FR24 and PiAware
+# need their own parsing, so they get dedicated helpers.
 FEEDER_STATUS_FILES = {
     'adsbexchange-feed': '/run/adsbexchange-feed/status.json',
     'adsbfi-feed':       '/run/adsbfi-feed/status.json',
@@ -353,6 +421,11 @@ def get_piaware_last_seen():
     return 'disconnected'
 
 # ── Airspy signal analysis ─────────────────────────────────────────────────
+# Reads airspy_adsb's live stats.json and turns the raw SNR / noise / RSSI
+# numbers into a plain-English gain recommendation (raise, lower, or leave it).
+# Saturation is judged on the 95th-percentile RSSI rather than the single loudest
+# sample, because one aircraft directly overhead pegs the max at any sane gain and
+# would otherwise nag forever.
 def get_airspy_stats():
     return HOST.read_json(AIRSPY_STATS) or {}
 
@@ -385,6 +458,9 @@ def gain_recommendation(stats):
         return {'action': 'ok', 'reason': f'Signal levels look good (SNR {median_snr:.1f} dB, noise {median_noise:.0f} dB)'}
 
 # ── System metrics ─────────────────────────────────────────────────────────
+# Host vitals for the dashboard's system panel — CPU %, memory, disk, load,
+# temperature, uptime — read via psutil (with a fallback for CPU temp, which
+# psutil can't always see on a Pi).
 def get_system_metrics():
     metrics = {}
     try:
@@ -406,6 +482,8 @@ def get_system_metrics():
     return metrics
 
 # ── readsb deep stats ──────────────────────────────────────────────────────
+# Parses readsb's own stats.json (aircraft seen, message rate, peak range,
+# strong-signal %, per-type breakdown) for the detailed receiver-stats panel.
 def get_readsb_deep_stats():
     try:
         stats = HOST.read_json(os.path.join(READSB_JSON, 'stats.json'))
@@ -428,6 +506,10 @@ def get_readsb_deep_stats():
         return {}
 
 # ── Version checking ───────────────────────────────────────────────────────
+# Compares the installed version of each stack component against the latest
+# published upstream. VERSION_SOURCES declares, per component, how to read the
+# installed version locally and where to fetch the latest. Results are cached for
+# VERSION_TTL seconds so the dashboard isn't hammering GitHub on every refresh.
 VERSION_SOURCES = {
     'readsb': {
         'installed_cmd': ['readsb', '--version'],
@@ -520,6 +602,8 @@ def get_versions():
         return dict(_version_cache)
 
 # ── Airspy detection ───────────────────────────────────────────────────────
+# Identifies which Airspy model is plugged in (Mini vs R2) from its USB id, so
+# the UI can suggest the correct sample rate, and surfaces a live one-line hint.
 MINI_IDS = {'60a1'}
 R2_IDS   = {'60a8', '0002'}
 
@@ -551,6 +635,12 @@ def airspy_live_hint():
         return '6 MSPS · gain 21 · Beast → :30004'
 
 # ── Feeder configs ─────────────────────────────────────────────────────────
+# Every feeder stores its settings differently — flat INI, shell-style KEY=val
+# /etc/default files, piaware-config, or env vars baked into a docker container.
+# FEEDER_CONFIGS is a declarative table describing, per feeder, where its config
+# lives, which format it uses, and which fields the UI may edit. The read_*/write_*
+# helpers below implement each format once; the table wires feeders to them so
+# adding a feeder is data, not new code.
 FEEDER_CONFIGS = {
     'fr24feed': {
         'label': 'FlightRadar24',
@@ -672,6 +762,13 @@ def read_docker_env(container):
     return vals
 
 # ── Config store ───────────────────────────────────────────────────────────
+# The write side of feeder settings. Each format has a `_write_*` function with
+# the same (cfg, data) -> (ok, message) shape, paired with its reader in the
+# CONFIG_ADAPTERS table. `_config_adapter` picks the right one for a feeder, and
+# get_/set_feeder_settings are the two public entry points the routes call.
+# `_write_docker` recreates the container atomically: it renames the old one
+# aside, runs the new one, and only deletes the backup on success (rolling back
+# on failure) so a bad value can never leave the feeder gone.
 # Deep module behind Feeder settings: one adapter per format, selected ONCE by
 # _config_adapter and reused by both get/set. See CONTEXT.md ("Config store").
 Adapter = namedtuple('Adapter', ['read', 'write'])
@@ -761,6 +858,10 @@ def set_feeder_settings(key, data):
         return False, str(e)
 
 # ── Config ─────────────────────────────────────────────────────────────────
+# Loads the feeder list from feeders.ini — the [service:<unit>] / [docker:<name>]
+# sections that define what shows up in the sidebar. `load_config` parses them,
+# `get_config_map` indexes by key, and `save_feeders` writes the list back when
+# the user edits sidebar entries in Settings.
 def load_config():
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_FILE)
@@ -792,6 +893,8 @@ def save_feeders(feeders):
     HOST.write_text(CONFIG_FILE, buf.getvalue())
 
 # ── Status ─────────────────────────────────────────────────────────────────
+# Thin wrappers that delegate service status and start/stop/restart actions to
+# the active INIT adapter (and to docker for container feeders).
 def systemd_status(service):
     return INIT.status(service)
 
@@ -805,6 +908,10 @@ def service_action(service, action):
     return INIT.action(service, action)
 
 # ── Feeder probe ───────────────────────────────────────────────────────────
+# Ties the readers together into one health record per feeder. `probe` returns a
+# FeederHealth (status, detail, last-seen, running-for) — the single object the
+# /api/status route renders into each sidebar card. `readsb_metrics` pulls the
+# headline numbers (aircraft, message rate, range) for the metrics panel.
 # Deep module: answers "what is this Feeder doing right now". See CONTEXT.md.
 # Callers never branch on Feeder kind — the dispatch lives here, once.
 class FeederHealth:
@@ -855,6 +962,11 @@ def readsb_metrics():
     return metrics
 
 # ── Airspy / Receiver settings ─────────────────────────────────────────────
+# Read/modify the two core SDR config files (/etc/default/airspy_adsb and
+# /etc/default/readsb). These parse the existing options string, merge in the
+# user's changes (gain, sample rate, lat/lon, max range) and write it back,
+# preserving any flags the UI doesn't manage. The routes restart the affected
+# service afterwards so changes take effect.
 def parse_airspy_options(text):
     s = {'gain': '21', 'sample_rate': '6', 'options': ''}
     for line in text.splitlines():
@@ -922,6 +1034,12 @@ def write_receiver_options(text, new_settings):
     return '\n'.join(out) + '\n'
 
 # ── Log streaming ──────────────────────────────────────────────────────────
+# Streams live logs to the browser via Server-Sent Events. `_log_command` builds
+# the follow command (`journalctl -u <unit> -f` for services, `docker logs -f`
+# for containers); `stream_logs` spawns it and yields each line as an SSE frame.
+# journalctl is wrapped in `stdbuf -oL` to force line-buffering — without it,
+# journalctl block-buffers when piped and a quiet unit's stream looks dead.
+# `_sse` is the one-line JSON framing helper.
 def _sse(text):
     """Frame one line of text as a Server-Sent Events data message."""
     return f"data: {json.dumps(text)}\n\n"
@@ -964,6 +1082,10 @@ def stream_logs(cmd):
             except Exception: pass
 
 # ── Background poller ──────────────────────────────────────────────────────
+# A daemon thread (started at the bottom of the file) that runs forever: every
+# 30s it records each service's status into the events ledger and samples readsb
+# metrics into the metrics table. This is what populates the uptime history and
+# sparklines over time, independent of whether anyone has the dashboard open.
 def background_poll():
     """Record service states and metrics to SQLite every 30s."""
     consecutive_errors = 0
@@ -986,6 +1108,11 @@ def background_poll():
         time.sleep(sleep_time)
 
 # ── Routes ─────────────────────────────────────────────────────────────────
+# The HTTP API the single-page frontend polls. Read endpoints (/api/status,
+# /api/stats/*, /api/alerts, /api/versions, logs) work on both ports; write
+# endpoints (settings, service control, backup, system log) carry @admin_required
+# so they only work on the admin port. Each route is a thin shell that calls the
+# functions defined above and returns JSON (or an SSE stream for logs).
 @app.route('/api/alerts')
 def api_alerts():
     """Return any services currently down."""
