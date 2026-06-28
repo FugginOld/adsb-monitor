@@ -414,8 +414,13 @@ def gain_recommendation(stats):
     p95_rssi     = rssi.get('p95', 0)
     max_rssi     = rssi.get('max', 0)
 
-    if max_rssi >= 67:
-        return {'action': 'decrease', 'reason': f'Strong signals near saturation (max RSSI {max_rssi:.0f} dB) — try gain {max(0, int(gain)-2)}'}
+    # Judge saturation on the 95th-percentile RSSI, not the single loudest sample:
+    # one aircraft overhead pegs max RSSI to ~68 dB at any sane gain, so a max-based
+    # check nags forever and lowering gain never clears it. Fall back to max only if
+    # the feed doesn't report p95.
+    sat_rssi = p95_rssi or max_rssi
+    if sat_rssi >= 67:
+        return {'action': 'decrease', 'reason': f'Strong signals near saturation (RSSI {sat_rssi:.0f} dB) — try gain {max(0, int(gain)-2)}'}
     elif median_snr < 8:
         return {'action': 'increase', 'reason': f'Low median SNR ({median_snr:.1f} dB) — try gain {min(21, int(gain)+2)}'}
     elif median_noise > 45:

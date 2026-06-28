@@ -27,6 +27,28 @@ def test_airspy_stats_missing_returns_empty(fake_host):
     assert appmod.get_airspy_stats() == {}
 
 
+# ── gain_recommendation: saturation judged on p95, not lone max ───────────────
+def test_gain_rec_lone_peak_does_not_trigger_saturation():
+    # One aircraft overhead pegs max to 68; p95 is fine -> no decrease nag.
+    stats = {'snr': {'median': 15}, 'noise': {'median': 33},
+             'rssi': {'p95': 46, 'max': 68}, 'gain': 11}
+    assert appmod.gain_recommendation(stats)['action'] == 'ok'
+
+
+def test_gain_rec_high_p95_triggers_saturation():
+    stats = {'snr': {'median': 15}, 'noise': {'median': 33},
+             'rssi': {'p95': 68, 'max': 70}, 'gain': 13}
+    rec = appmod.gain_recommendation(stats)
+    assert rec['action'] == 'decrease'
+    assert 'gain 11' in rec['reason']  # 13 - 2
+
+
+def test_gain_rec_falls_back_to_max_without_p95():
+    stats = {'snr': {'median': 15}, 'noise': {'median': 33},
+             'rssi': {'max': 68}, 'gain': 13}
+    assert appmod.gain_recommendation(stats)['action'] == 'decrease'
+
+
 # ── get_readsb_deep_stats ────────────────────────────────────────────────────
 def test_readsb_deep_stats_computes_fields(fake_host):
     stats = {
