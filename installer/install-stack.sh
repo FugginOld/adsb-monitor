@@ -47,7 +47,10 @@ Press OK to begin." 20 70
 info "Detecting connected SDR..."
 pkg_install usbutils
 source "$SCRIPT_DIR/detect-sdr.sh"
-eval "$(detect_sdr)"
+# detect_sdr prints KEY=value lines; assign by name (no eval — values contain spaces)
+while IFS='=' read -r _k _v; do
+  [ -n "$_k" ] && printf -v "$_k" '%s' "$_v"
+done < <(detect_sdr)
 
 if [ "$SDR_TYPE" = "unknown" ]; then
   CHOICE=$(whiptail --title "SDR Not Detected" --menu \
