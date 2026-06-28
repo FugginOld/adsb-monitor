@@ -10,12 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as appmod
 from app import Result
+from fakes import FakeHost, FakeInitAdapter
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _fake():
-    return appmod.FakeHost()
+    return FakeHost()
 
 
 # ── SystemdAdapter ────────────────────────────────────────────────────────────
@@ -189,7 +190,7 @@ class TestDetectInit:
 
 class TestCallersUseINIT:
     def test_feeder_status_delegates_to_init(self, monkeypatch):
-        fake_init = appmod.FakeInitAdapter(
+        fake_init = FakeInitAdapter(
             statuses={'readsb': ('ok', 'active')}
         )
         monkeypatch.setattr(appmod, 'INIT', fake_init)
@@ -198,7 +199,7 @@ class TestCallersUseINIT:
         assert detail == 'active'
 
     def test_service_action_delegates_to_init(self, monkeypatch):
-        fake_init = appmod.FakeInitAdapter(
+        fake_init = FakeInitAdapter(
             actions={'readsb': (True, 'done')}
         )
         monkeypatch.setattr(appmod, 'INIT', fake_init)

@@ -6,8 +6,8 @@ Whole-repo scan for over-engineering. Ranked biggest cut first. Safe set applied
 
 | # | Status | Tag | What to cut | Replacement | Location |
 |---|--------|-----|-------------|-------------|----------|
-| 1 | ⏸️ deferred | `yagni` | `InitAdapter` base + `OpenRCAdapter` + `NullAdapter` — one real impl (systemd). Stack is systemd-only; OpenRC's `running_since` already degrades to `None`. | Module-level `systemd_*` functions + a `detect_init` guard. ~90 → ~30 lines. | [app.py:108-201](app.py#L108-L201) |
-| 2 | ⏸️ deferred | `delete` | `FakeHost` + `FakeInitAdapter` test doubles living in the production module. Only imported by tests. | Move to `tests/conftest.py`. -45 lines from app.py. | [app.py:71-100](app.py#L71-L100), [app.py:176-191](app.py#L176-L191) |
+| 1 | 🚫 wontfix | `yagni` | `InitAdapter` base + `OpenRCAdapter` + `NullAdapter`. | Kept — three real runtime targets (systemd, OpenRC, monitor-only/Null) wired via `detect_init`, documented + tested + a cross-platform PLAN. The interface earns its keep. | [app.py](app.py) |
+| 2 | ✅ done | `delete` | `FakeHost` + `FakeInitAdapter` test doubles living in the production module. Only imported by tests. | Moved to `tests/fakes.py`; conftest + test_init_adapter import from there. -45 lines from app.py. | [tests/fakes.py](tests/fakes.py) |
 | 3 | ✅ done | `delete` | `get_uptime_history` — 0 callers, dead. | Nothing. | [app.py](app.py) |
 | 4 | ✅ done | `delete` | `/api/debug-port` route — not referenced by frontend, ships internal port state. | Nothing. | [app.py](app.py) |
 | 5 | ✅ done | `shrink` | `api_uptime_history` re-implemented the `get_uptime_bars` day-loop. | Factored `_daily_uptime`; `get_uptime_bars` derives pcts from it, route is a one-line dict comp. Also dropped the leftover in-function `datetime` import (#7). | [app.py](app.py) |
@@ -18,7 +18,7 @@ Whole-repo scan for over-engineering. Ranked biggest cut first. Safe set applied
 
 ## Notes
 
-- **#1** is tested and was added in a recent commit ("Implement InitAdapter hierarchy"), so it's deliberate. Flagged as the largest speculative surface, not as a clear mistake — keep if cross-platform is a real near-term goal, collapse if systemd is the only target.
+- **#1 wontfix** — verified the cross-platform goal is real: README documents all three adapters, `detect_init` selects at runtime, OpenRC/Null are tested, and there's a `PLAN.md` for it. Three real implementations behind one interface is exactly when the abstraction is justified, not speculative.
 
 ## Bottom line
 

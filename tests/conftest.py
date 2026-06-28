@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as appmod  # noqa: E402
+from fakes import FakeHost  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -13,7 +14,7 @@ def fake_host():
     """Swap HOST and INIT for FakeHost/SystemdAdapter around every test, then restore."""
     original_host = appmod.HOST
     original_init = appmod.INIT
-    fake = appmod.FakeHost()
+    fake = FakeHost()
     appmod.HOST = fake
     appmod.INIT = appmod.SystemdAdapter(fake)
     yield fake
