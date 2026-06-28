@@ -218,6 +218,9 @@ if [ "$DUAL_BAND" = "1" ]; then
     # with per-aircraft RSSI — the monitor's 978 status block reads it. Best-effort.
     dpkg -i /tmp/skyaware978_*.deb >/dev/null 2>&1 || apt-get -fy install >/dev/null 2>&1
     systemctl enable --now skyaware978 >/dev/null 2>&1 || true
+    # graphs1090 ([3/6]) enables its 978 graphs only if /run/skyaware978/aircraft.json
+    # already exists when it installs — wait for skyaware978 to write it first.
+    for _i in $(seq 1 15); do [ -f /run/skyaware978/aircraft.json ] && break; sleep 1; done
     # Bind the UAT stick. The package's NET_OPTIONS already exposes --raw-port 30978
     # (which readsb ingests); don't repeat it here or dump978 binds the port twice.
     sed -i "s|^RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--sdr driver=rtlsdr,serial=$UAT_SERIAL\"|" /etc/default/dump978-fa
