@@ -26,4 +26,4 @@ Whole-repo scan for over-engineering. Ranked biggest cut first. Safe set applied
 
 ## Out of scope (route to a normal review)
 
-- `_write_docker` stop/rm/run is destructive on failure with no rollback — correctness, not bloat. [app.py:742-758](app.py#L742-L758)
+- ✅ fixed — `_write_docker` stop/rm/run was destructive on failure with no rollback. Now renames the old container aside, runs the new one, and only drops the backup on success; a failed `docker run` restores and restarts the original. Covered by `test_docker_recreate_rolls_back_on_run_failure`. [app.py](app.py)

@@ -706,12 +706,21 @@ def _write_docker(cfg, data):
     extra_hosts = info['HostConfig'].get('ExtraHosts') or []
     env_args  = [arg for k, v in current.items() for arg in ['-e', f'{k}={v}']]
     host_args = [arg for h in extra_hosts for arg in ['--add-host', h]]
+    # Rename the old container aside instead of deleting it, so a failed
+    # `docker run` (bad env value, missing image, ...) can be rolled back —
+    # otherwise the feeder is gone with no way back.
+    backup = f'{container}_bak'
+    HOST.run(['docker', 'rm', '-f', backup], timeout=10)   # clear any stale backup
     HOST.run(['docker', 'stop', container], timeout=10)
-    HOST.run(['docker', 'rm',   container], timeout=10)
+    HOST.run(['docker', 'rename', container, backup], timeout=10)
     run = HOST.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
                    + env_args + host_args + [image], timeout=15)
     if not run.ok:
+        # roll back: restore and restart the original container
+        HOST.run(['docker', 'rename', backup, container], timeout=10)
+        HOST.run(['docker', 'start', container], timeout=10)
         return False, run.err or 'docker run failed'
+    HOST.run(['docker', 'rm', '-f', backup], timeout=10)   # success: drop backup
     return True, 'Container recreated'
 
 CONFIG_ADAPTERS = {

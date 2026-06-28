@@ -49,7 +49,10 @@ def test_docker_recreate_issues_correct_run(fake_host):
     runs = [c for c in fake_host.calls if c[0] == 'run']
     issued = [c[1] for c in runs]
     assert ('docker', 'stop', 'airnavradar') in issued
-    assert ('docker', 'rm', 'airnavradar') in issued
+    # old container renamed aside (not deleted) before the new one runs
+    assert ('docker', 'rename', 'airnavradar', 'airnavradar_bak') in issued
+    # backup dropped once the new container is up
+    assert ('docker', 'rm', '-f', 'airnavradar_bak') in issued
 
     run_cmd = next(c for c in issued if c[:3] == ('docker', 'run', '-d'))
     # updated env carried through as -e pairs, preserving existing keys/order
@@ -58,6 +61,29 @@ def test_docker_recreate_issues_correct_run(fake_host):
     # preserved image + extra host
     assert run_cmd[-1] == 'ghcr.io/airnav:latest'
     assert '--add-host' in run_cmd and 'host.docker.internal:host-gateway' in run_cmd
+
+
+# ── set_feeder_settings: docker recreate rolls back a failed run ─────────────
+def test_docker_recreate_rolls_back_on_run_failure(fake_host):
+    env_cmd = ('docker', 'inspect', '--format',
+               '{{range .Config.Env}}{{println .}}{{end}}', 'airnavradar')
+    inspect_cmd = ('docker', 'inspect', 'airnavradar')
+    fake_host.commands = {
+        env_cmd: Result(0, 'SHARING_KEY=old\n', ''),
+        inspect_cmd: Result(0, json.dumps([{
+            'Config': {'Image': 'img:latest'}, 'HostConfig': {'ExtraHosts': []},
+        }]), ''),
+    }
+    # everything else (stop/rename/run/start) fails -> `docker run` fails
+    fake_host.default_command = Result(1, '', 'boom')
+
+    ok, msg = appmod.set_feeder_settings('airnavradar', {'SHARING_KEY': 'newkey'})
+    assert ok is False
+    issued = [c[1] for c in fake_host.calls if c[0] == 'run']
+    # the original is renamed aside, then restored and restarted on failure
+    assert ('docker', 'rename', 'airnavradar', 'airnavradar_bak') in issued
+    assert ('docker', 'rename', 'airnavradar_bak', 'airnavradar') in issued
+    assert ('docker', 'start', 'airnavradar') in issued
 
 
 # ── set_feeder_settings: piaware write-via-cmd path ──────────────────────────
