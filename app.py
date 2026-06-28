@@ -880,8 +880,9 @@ def set_feeder_settings(key, data):
         return False, 'No write method defined'
     try:
         return adapter.write(cfg, data)
-    except Exception as e:
-        return False, str(e)
+    except Exception:
+        logger.exception("Failed to write feeder settings for key=%s", key)
+        return False, 'Failed to update feeder settings'
 
 # ── Config ─────────────────────────────────────────────────────────────────
 # Loads the feeder list from feeders.ini — the [service:<unit>] / [docker:<name>]
