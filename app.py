@@ -1300,8 +1300,9 @@ def set_airspy():
 def get_receiver():
     try:
         return jsonify({'ok': True, 'settings': parse_receiver_options(HOST.read_text(READSB_DEFAULT) or '')})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Failed to read receiver settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
 
 @app.route('/api/settings/receiver', methods=['POST'])
 @admin_required
@@ -1311,8 +1312,9 @@ def set_receiver():
         HOST.write_text(READSB_DEFAULT, write_receiver_options(text, request.get_json()))
         ok, out = service_action('readsb', 'restart')
         return jsonify({'ok': ok, 'output': out})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Failed to update receiver settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
 
 @app.route('/api/settings/feeders', methods=['GET'])
 @admin_required
