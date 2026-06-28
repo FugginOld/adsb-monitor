@@ -34,10 +34,13 @@ import time
 import urllib.request
 import psutil
 import shutil
+import logging
 from collections import namedtuple
 from datetime import datetime, timezone
 from flask import Flask, jsonify, send_from_directory, Response, stream_with_context, request
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+logger = logging.getLogger(__name__)
 
 # ProxyFix trusts one layer of X-Forwarded-* headers so links/IPs are correct
 # when the app sits behind a reverse proxy (nginx, Caddy, NPM).
@@ -1277,8 +1280,9 @@ def get_airspy():
         settings['model'] = model
         settings['recommended_sample_rate'] = '6' if model == 'mini' else '12'
         return jsonify({'ok': True, 'settings': settings})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Failed to read Airspy settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
 
 @app.route('/api/settings/airspy', methods=['POST'])
 @admin_required
