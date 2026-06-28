@@ -1232,8 +1232,9 @@ def api_aircraft_types():
             'other':  types.get('other', 0) + types.get('adsr_icao', 0),
             'raw':    types,
         })
-    except Exception as e:
-        return jsonify({'error': str(e)})
+    except Exception:
+        app.logger.exception("Failed to load aircraft type stats")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/stats/system')
