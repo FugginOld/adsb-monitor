@@ -14,7 +14,7 @@ A self-hosted web dashboard for monitoring an ADS-B receiver station. Shows live
 | **readsb deep stats** | Aircraft count, message rate, range, signal metrics |
 | **Version checking** | Current vs latest for each stack component |
 | **Settings** | Edit sharing keys, lat/lon/altitude, receiver options in-browser |
-| **Log streaming** | Live tail of any feeder's systemd journal or Docker log |
+| **Log streaming** | Live tail of any feeder's systemd journal or Docker log, plus a whole-system journal window in Settings |
 | **Service control** | Restart any service (admin port only) |
 | **Backup** | One-click download of all config files |
 

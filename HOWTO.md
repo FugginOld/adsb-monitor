@@ -132,7 +132,9 @@ Each feeder has its own settings card with fields specific to that feeder (shari
 
 ## 5. Logs
 
-Click the **Logs** button on any feeder card to open a live log stream. The monitor tails the systemd journal (for service feeders) or Docker log (for container feeders) and streams it to your browser.
+Click the **Logs** button on any feeder card to open a live log stream. The monitor tails the systemd journal (for service feeders) or Docker log (for container feeders) and streams it to your browser. Output is line-buffered, so even quiet units stream immediately; if a unit has no journal or doesn't exist, the stream says so instead of sitting blank.
+
+For a station-wide view, **Settings → System log** shows a live terminal of the whole-system journal (all units at once). It connects when you open Settings and disconnects when you leave. Admin port only — it's hidden on the read-only port.
 
 ---
 
