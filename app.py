@@ -1291,8 +1291,9 @@ def set_airspy():
         write_airspy_options(request.get_json())
         ok, out = service_action('airspy_adsb', 'restart')
         return jsonify({'ok': ok, 'output': out})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Failed to update Airspy settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
 
 @app.route('/api/settings/receiver', methods=['GET'])
 @admin_required
