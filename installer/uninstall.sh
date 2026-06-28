@@ -34,6 +34,7 @@ TARGETS=$(whiptail --title "Select Components to Remove" --checklist \
 "monitor"      "adsb-monitor dashboard" ON \
 "airspy"       "airspy_adsb decoder" OFF \
 "readsb"       "readsb + tar1090" OFF \
+"dump978"      "dump978 (978 UAT decoder)" OFF \
 "graphs1090"   "graphs1090" OFF \
 "flightaware"  "PiAware (FlightAware)" OFF \
 "flightradar24" "fr24feed (FlightRadar24)" OFF \
@@ -94,6 +95,14 @@ for target in $TARGETS; do
       rm -f /etc/lighttpd/conf-enabled/*tar1090*
       systemctl daemon-reload
       ok "readsb + tar1090 removed" ;;
+    dump978)
+      info "Removing dump978..."
+      remove_service dump978-fa
+      pkg_remove dump978-fa
+      # drop the 978 merge from readsb so it doesn't try to reconnect
+      [ -f /etc/default/readsb ] && sed -i 's| *--net-connector 127.0.0.1,30978,uat_in||' /etc/default/readsb
+      systemctl restart readsb 2>/dev/null; systemctl daemon-reload
+      ok "dump978 removed" ;;
     graphs1090)
       info "Removing graphs1090..."
       if [ -f /usr/share/graphs1090/uninstall.sh ]; then

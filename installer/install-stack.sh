@@ -85,6 +85,46 @@ Recommended:
 
 Is this correct?" 18 70 || { warn "Re-run and select manually"; exit 1; }
 
+# ── Dual-band (1090 + 978 UAT) ───────────────────────────────────────────────
+# Two RTL-SDRs → offer 978 UAT alongside 1090. Requires unique USB serials so
+# readsb and dump978 each bind the right stick. We pick the 978-serial stick for
+# UAT, the other for 1090, and merge 978 into readsb via its uat_in connector so
+# tar1090 shows both bands on one map.
+DUAL_BAND=0; SDR_SERIAL=""; UAT_SERIAL=""
+RTL_COUNT=$(lsusb | grep -ciE '0bda:(2832|2838)')
+if [ "$SDR_TYPE" = "rtlsdr" ] && [ "${RTL_COUNT:-0}" -ge 2 ]; then
+  if whiptail --title "Two RTL-SDRs Detected" --yesno \
+"Two RTL-SDR sticks found.
+
+Enable DUAL-BAND — 1090 MHz ADS-B + 978 MHz UAT (US)?
+
+Each stick needs a unique USB serial. Assign once with:
+  rtl_eeprom -d 0 -s 00001090
+  rtl_eeprom -d 1 -s 00000978
+then unplug/replug both. The stick whose serial contains
+'978' is used for UAT; the other for 1090.
+
+Enable 978 UAT?" 19 72; then
+    pkg_install rtl-sdr
+    while read -r _sn; do
+      case "$_sn" in
+        *978*) UAT_SERIAL="$_sn" ;;
+        ?*)    SDR_SERIAL="$_sn" ;;
+      esac
+    done < <(rtl_test -t 2>&1 | sed -n 's/.*SN: *\([^ ]*\).*/\1/p')
+    if [ -n "$UAT_SERIAL" ] && [ -n "$SDR_SERIAL" ]; then
+      DUAL_BAND=1
+      ok "Dual-band: 1090=$SDR_SERIAL  978=$UAT_SERIAL"
+    else
+      whiptail --title "Serials Not Set" --msgbox \
+"Couldn't find two sticks with distinct serials (need one containing '978').
+
+Assign serials with rtl_eeprom (see prior screen), replug, then re-run.
+Continuing with 1090-only for now." 13 72
+    fi
+  fi
+fi
+
 # ── Location ────────────────────────────────────────────────────────────────
 LAT=$(whiptail --title "Receiver Location" --inputbox "LATITUDE (decimal)\n\nExample: 27.88718" 11 60 "" 3>&1 1>&2 2>&3) || exit 1
 LON=$(whiptail --title "Receiver Location" --inputbox "LONGITUDE (decimal)\n\nExample: -82.25752" 11 60 "" 3>&1 1>&2 2>&3) || exit 1
@@ -117,7 +157,7 @@ FEEDERS=$(echo "$FEEDERS" | tr -d '"')
 whiptail --title "Confirm" --yesno \
 "Ready to install:
 
-SDR:       $SDR_MODEL ($SDR_DECODER)
+SDR:       $SDR_MODEL ($SDR_DECODER)$([ "$DUAL_BAND" = "1" ] && printf '\n978 UAT:   dump978 on serial %s' "$UAT_SERIAL")
 Location:  $LAT, $LON @ ${ALT_M}m
 Gain:      $GAIN
 Feeders:   ${FEEDERS:-none}
@@ -152,7 +192,9 @@ AIRSPYEOF
     systemctl daemon-reload; systemctl restart airspy_adsb readsb
     ok "airspy_adsb configured (${SAMPLE_RATE} MSPS, gain $GAIN)" ;;
   readsb)
-    sed -i "s|RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--device-type rtlsdr --gain $GAIN --lat $LAT --lon $LON\"|" /etc/default/readsb
+    # Dual-band: pin readsb to the 1090 stick by serial so it doesn't grab the 978 one.
+    DEV_OPT=""; [ "$DUAL_BAND" = "1" ] && DEV_OPT="--device $SDR_SERIAL "
+    sed -i "s|RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--device-type rtlsdr ${DEV_OPT}--gain $GAIN --lat $LAT --lon $LON\"|" /etc/default/readsb
     systemctl restart readsb
     ok "readsb configured for RTL-SDR (gain $GAIN)" ;;
   sdrplay)
@@ -162,6 +204,31 @@ AIRSPYEOF
     if [ -f /tmp/sdrplay.run ]; then chmod +x /tmp/sdrplay.run; echo -e "\n\ny\n" | /tmp/sdrplay.run >/dev/null 2>&1 || warn "SDRplay API may need manual completion"; fi
     warn "SDRplay decoder setup is partially manual - see sdrplay.com" ;;
 esac
+
+if [ "$DUAL_BAND" = "1" ]; then
+  info "[2b] Installing dump978 (978 UAT) on serial $UAT_SERIAL..."
+  pkg_install build-essential debhelper git \
+    libboost-program-options-dev libboost-regex-dev libboost-filesystem-dev \
+    libsoapysdr-dev soapysdr-module-rtlsdr
+  rm -rf /tmp/dump978-build
+  if git clone --depth 1 https://github.com/flightaware/dump978 /tmp/dump978-build >/dev/null 2>&1 \
+     && ( cd /tmp/dump978-build && dpkg-buildpackage -b -uc -us ) >/dev/null 2>&1 \
+     && dpkg -i /tmp/dump978-fa_*.deb >/dev/null 2>&1; then
+    # Bind the UAT stick; expose raw UAT on 30978 for readsb to ingest.
+    sed -i "s|^RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--sdr driver=rtlsdr,serial=$UAT_SERIAL --raw-port 30978\"|" /etc/default/dump978-fa
+    # Merge 978 into readsb so tar1090 shows both bands on one map.
+    if grep -q "30978,uat_in" /etc/default/readsb; then :
+    elif grep -q '^NET_OPTIONS="' /etc/default/readsb; then
+      sed -i 's|^NET_OPTIONS="|NET_OPTIONS="--net-connector 127.0.0.1,30978,uat_in |' /etc/default/readsb
+    else
+      echo 'NET_OPTIONS="--net-connector 127.0.0.1,30978,uat_in"' >> /etc/default/readsb
+    fi
+    systemctl daemon-reload; systemctl enable --now dump978-fa >/dev/null 2>&1; systemctl restart readsb
+    ok "dump978 installed — 978 UAT merged into tar1090"
+  else
+    warn "dump978 build/install failed — 1090 still works; see github.com/flightaware/dump978"
+  fi
+fi
 
 info "[3/6] Installing graphs1090..."
 bash -c "$(curl -L -o - https://github.com/wiedehopf/graphs1090/raw/master/install.sh)" >/dev/null 2>&1
@@ -250,7 +317,7 @@ PI_IP=$(hostname -I | awk '{print $1}')
 whiptail --title "Installation Complete" --msgbox \
 "ADS-B stack installed!
 
-SDR: $SDR_MODEL
+SDR: $SDR_MODEL$([ "$DUAL_BAND" = "1" ] && printf '\n978 UAT: dump978 (serial %s) — merged into the map' "$UAT_SERIAL")
 
 Access:
   Monitor:   http://$PI_IP:5000
