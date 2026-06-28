@@ -302,16 +302,20 @@ def record_metrics(aircraft, msg_rate, max_range_nm):
     conn.commit()
     conn.close()
 
-def get_uptime_bars(service, days=7):
-    """Return list of daily uptime pct for compact bar display (oldest first)."""
+def _daily_uptime(service, days=7):
+    """Per-day uptime as {'day': 'MM/DD', 'pct': float}, oldest first."""
     now = time.time()
-    bars = []
+    out = []
     for day_offset in range(days - 1, -1, -1):
         day_start = now - (day_offset + 1) * 86400
         day_end   = now - day_offset * 86400
-        rows = _query_events(service, day_start, day_end)
-        bars.append(fold_uptime(rows, day_start, day_end))
-    return bars
+        pct = fold_uptime(_query_events(service, day_start, day_end), day_start, day_end)
+        out.append({'day': datetime.fromtimestamp(day_start + 43200).strftime('%m/%d'), 'pct': pct})
+    return out
+
+def get_uptime_bars(service, days=7):
+    """Daily uptime pct for compact bar display (oldest first)."""
+    return [d['pct'] for d in _daily_uptime(service, days)]
 
 
 def get_service_uptime_pct(service, days=7):
@@ -1101,23 +1105,7 @@ def api_history():
 @app.route('/api/stats/uptime/history')
 def api_uptime_history():
     """Return 7-day daily uptime % for all services."""
-    feeders = load_config()
-    result = {}
-    days = 7
-    now = time.time()
-    for f in feeders:
-        key = f['key']
-        daily = []
-        for day_offset in range(days - 1, -1, -1):
-            day_start = now - (day_offset + 1) * 86400
-            day_end   = now - day_offset * 86400
-            rows = _query_events(key, day_start, day_end)
-            pct  = fold_uptime(rows, day_start, day_end)
-            from datetime import datetime
-            day_label = datetime.fromtimestamp(day_start + 43200).strftime('%m/%d')
-            daily.append({'day': day_label, 'pct': pct})
-        result[key] = daily
-    return jsonify(result)
+    return jsonify({f['key']: _daily_uptime(f['key']) for f in load_config()})
 
 
 @app.route('/api/stats/uptime/<service>')

@@ -10,7 +10,7 @@ Whole-repo scan for over-engineering. Ranked biggest cut first. Safe set applied
 | 2 | ⏸️ deferred | `delete` | `FakeHost` + `FakeInitAdapter` test doubles living in the production module. Only imported by tests. | Move to `tests/conftest.py`. -45 lines from app.py. | [app.py:71-100](app.py#L71-L100), [app.py:176-191](app.py#L176-L191) |
 | 3 | ✅ done | `delete` | `get_uptime_history` — 0 callers, dead. | Nothing. | [app.py](app.py) |
 | 4 | ✅ done | `delete` | `/api/debug-port` route — not referenced by frontend, ships internal port state. | Nothing. | [app.py](app.py) |
-| 5 | ⏸️ deferred | `shrink` | `api_uptime_history` re-implements the `get_uptime_bars` day-loop. | Call `get_uptime_bars` (or factor `_daily(key, days)`); keep only the date-label zip. ~15 → ~6 lines. | [app.py](app.py) |
+| 5 | ✅ done | `shrink` | `api_uptime_history` re-implemented the `get_uptime_bars` day-loop. | Factored `_daily_uptime`; `get_uptime_bars` derives pcts from it, route is a one-line dict comp. Also dropped the leftover in-function `datetime` import (#7). | [app.py](app.py) |
 | 6 | ✅ done | `stdlib` | `import threading as _threading` aliases an already-imported module. | Use the existing `threading.local()`. | [app.py](app.py) |
 | 7 | ✅ done | `delete` | `from datetime import datetime` re-imported inside functions — already at top (line 14). | Dropped (2 of 3; the one in #5's `api_uptime_history` left with that deferred item). | [app.py](app.py) |
 | 8 | ✅ done | `shrink` | `import zipfile, io` inside `api_backup` — `io` already imported at top. | `import zipfile` only. | [app.py](app.py) |
