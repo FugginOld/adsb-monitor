@@ -1532,6 +1532,7 @@ def restart_service(name):
     return jsonify({'ok': ok, 'output': out})
 
 @app.route('/api/logs/<key>')
+@admin_required
 def api_logs(key):
     cfg = get_config_map()
     if key not in cfg:
