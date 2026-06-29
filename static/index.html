@@ -576,8 +576,16 @@
             <div class="btn-row" id="restart-btns"></div>
             <div class="btn-row" style="margin-top:4px">
               <button class="btn btn-secondary" onclick="refreshVersions(event)"><i class="ti ti-refresh"></i> Check for updates now</button>
-              <button class="btn btn-secondary" onclick="downloadBackup()"><i class="ti ti-download"></i> Download config backup</button>
               <span class="toast" id="versions-toast"></span>
+            </div>
+            <div class="btn-row" style="margin-top:4px">
+              <button class="btn btn-secondary" onclick="downloadBackup()"><i class="ti ti-download"></i> Download config</button>
+              <button class="btn btn-secondary" onclick="downloadGraphs()"><i class="ti ti-chart-line"></i> Download graph data</button>
+              <input type="file" id="import-config-file" accept=".zip" style="display:none" onchange="importBackup('config',this)">
+              <button class="btn btn-secondary" onclick="document.getElementById('import-config-file').click()"><i class="ti ti-upload"></i> Import config</button>
+              <input type="file" id="import-graphs-file" accept=".zip" style="display:none" onchange="importBackup('graphs',this)">
+              <button class="btn btn-secondary" onclick="document.getElementById('import-graphs-file').click()"><i class="ti ti-upload"></i> Import graph data</button>
+              <span class="toast" id="backup-toast"></span>
             </div>
             <span class="toast" id="restart-toast"></span>
           </div>
@@ -1072,6 +1080,25 @@ async function loadUptimeHistory() {
 
 function downloadBackup() {
   window.location.href = '/api/backup';
+}
+function downloadGraphs() {
+  window.location.href = '/api/backup/graphs';
+}
+async function importBackup(kind,input){
+  const file=input.files[0]; if(!file){return;}
+  const url = kind==='graphs' ? '/api/restore/graphs' : '/api/restore';
+  const warn = kind==='graphs'
+    ? 'Restore graph history?\n\ncollectd stops briefly and existing RRD files are overwritten.'
+    : 'Restore config from this backup?\n\nOverwrites current config files and restarts readsb/dump978.';
+  if(!confirm(warn)){ input.value=''; return; }
+  showToast('backup-toast',true,'Uploading…');
+  try{
+    const fd=new FormData(); fd.append('file',file);
+    const r=await fetch(url,{method:'POST',body:fd}).then(r=>r.json());
+    const n = Array.isArray(r.restored)?r.restored.length:r.restored;
+    showToast('backup-toast',r.ok,r.ok?`✓ Restored ${n} item(s)`:'✗ '+(r.error||'failed'));
+  }catch(ex){ showToast('backup-toast',false,'✗ '+ex.message); }
+  input.value='';
 }
 
 async function loadReadsbStats() {

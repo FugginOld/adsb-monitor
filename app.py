@@ -1554,22 +1554,29 @@ def api_syslog():
     return Response(stream_with_context(gen), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
+# Named config files in the backup. The name (zip arcname) maps back to an exact
+# absolute path on restore — a whitelist, so a tampered zip can't write elsewhere.
+CONFIG_BACKUP_FILES = {
+    'feeders.ini':          CONFIG_FILE,
+    'airspy_adsb':          AIRSPY_DEFAULT,
+    'readsb':               READSB_DEFAULT,
+    'dump978-fa':           DUMP978_DEFAULT,
+    'skyaware978':          '/etc/default/skyaware978',
+    'fr24feed.ini':         '/etc/fr24feed.ini',
+    'piaware.conf':         '/etc/piaware.conf',
+    'readsb-biastee.conf':  BIASTEE_1090_CONF,
+    'adsb-monitor.service': '/etc/systemd/system/adsb-monitor.service',
+}
+GRAPHS_RRD_DIR = '/var/lib/collectd/rrd/localhost'
+
 @app.route('/api/backup')
 @admin_required
 def api_backup():
     """Download a zip of all config files."""
     import zipfile
     buf = io.BytesIO()
-    files = {
-        'feeders.ini':       CONFIG_FILE,
-        'airspy_adsb':       AIRSPY_DEFAULT,
-        'readsb':            READSB_DEFAULT,
-        'fr24feed.ini':      '/etc/fr24feed.ini',
-        'piaware.conf':      '/etc/piaware.conf',
-        'adsb-monitor.service': '/etc/systemd/system/adsb-monitor.service',
-    }
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for name, path in files.items():
+        for name, path in CONFIG_BACKUP_FILES.items():
             try:
                 zf.write(path, name)
             except Exception:
@@ -1579,6 +1586,92 @@ def api_backup():
     fname = f'adsb-config-{datetime.now().strftime("%Y%m%d-%H%M%S")}.zip'
     return send_file(buf, mimetype='application/zip',
                      as_attachment=True, download_name=fname)
+
+@app.route('/api/backup/graphs')
+@admin_required
+def api_backup_graphs():
+    """Download a zip of the collectd RRD graph history."""
+    import zipfile
+    if not os.path.isdir(GRAPHS_RRD_DIR):
+        return jsonify({'ok': False, 'error': 'no graph data found'}), 404
+    buf = io.BytesIO()
+    base = os.path.realpath(GRAPHS_RRD_DIR)
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, _dirs, fnames in os.walk(base):
+            for fn in fnames:
+                full = os.path.join(root, fn)
+                zf.write(full, os.path.relpath(full, base))
+    buf.seek(0)
+    from flask import send_file
+    fname = f'adsb-graphs-{datetime.now().strftime("%Y%m%d-%H%M%S")}.zip'
+    return send_file(buf, mimetype='application/zip',
+                     as_attachment=True, download_name=fname)
+
+@app.route('/api/restore', methods=['POST'])
+@admin_required
+def api_restore():
+    """Restore config files from an uploaded backup zip (whitelisted names only)."""
+    import zipfile
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'no file uploaded'}), 400
+    restored = []
+    try:
+        with zipfile.ZipFile(f.stream) as zf:
+            for name in zf.namelist():
+                dest = CONFIG_BACKUP_FILES.get(name)
+                if not dest:
+                    continue  # ignore anything not in the whitelist
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(name) as src, open(dest, 'wb') as out:
+                    shutil.copyfileobj(src, out)
+                restored.append(name)
+    except zipfile.BadZipFile:
+        return jsonify({'ok': False, 'error': 'not a valid backup zip'}), 400
+    except Exception:
+        logger.exception("Config restore failed")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'}), 500
+    # Re-apply: reload units (biastee drop-in) and bounce the decoders. Not adsb-monitor
+    # itself — that would kill this request before the response is sent.
+    HOST.run(['systemctl', 'daemon-reload'])
+    for svc in ('readsb', 'dump978-fa'):
+        HOST.run(['systemctl', 'try-restart', svc])
+    return jsonify({'ok': True, 'restored': restored})
+
+@app.route('/api/restore/graphs', methods=['POST'])
+@admin_required
+def api_restore_graphs():
+    """Restore collectd RRD graph history from an uploaded zip. Stops collectd first."""
+    import zipfile
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'no file uploaded'}), 400
+    base = os.path.realpath(GRAPHS_RRD_DIR)
+    count = 0
+    try:
+        HOST.run(['systemctl', 'stop', 'collectd'])
+        os.makedirs(base, exist_ok=True)
+        with zipfile.ZipFile(f.stream) as zf:
+            for name in zf.namelist():
+                if name.endswith('/'):
+                    continue
+                dest = os.path.realpath(os.path.join(base, name))
+                if dest != base and not dest.startswith(base + os.sep):
+                    continue  # zip-slip guard: never escape the RRD dir
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(name) as src, open(dest, 'wb') as out:
+                    shutil.copyfileobj(src, out)
+                count += 1
+    except zipfile.BadZipFile:
+        HOST.run(['systemctl', 'start', 'collectd'])
+        return jsonify({'ok': False, 'error': 'not a valid graph backup zip'}), 400
+    except Exception:
+        HOST.run(['systemctl', 'start', 'collectd'])
+        logger.exception("Graph restore failed")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'}), 500
+    HOST.run(['systemctl', 'start', 'collectd'])
+    HOST.run(['systemctl', 'try-restart', 'graphs1090'])
+    return jsonify({'ok': True, 'restored': count})
 
 
 @app.route('/')
