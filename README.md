@@ -125,7 +125,7 @@ Set `ADSB_FORCE=1` to skip the compatibility prompt on experimental/unsupported 
 ## Requirements
 
 - Python 3.9+
-- `flask` (`pip install flask`)
+- `flask` + `psutil` (`pip install flask psutil`)
 - `sqlite3` (stdlib)
 - systemd **or** OpenRC (service control); monitor-only mode works without either
 - **Dual-band (978 UAT) only:** `dump978-fa` + `skyaware978` (built by the installer),

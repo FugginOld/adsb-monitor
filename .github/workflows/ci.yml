@@ -25,9 +25,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      # flask is the only third-party runtime dep; tests mock the host seam,
-      # so no SDR/hardware is needed in the runner.
-      - run: pip install flask pytest
+      # flask + psutil are the third-party runtime deps (see install-stack.sh);
+      # tests mock the host seam, so no SDR/hardware is needed in the runner.
+      - run: pip install flask psutil pytest
       - run: pytest -q
 
   shellcheck:
