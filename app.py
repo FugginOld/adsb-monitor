@@ -1643,6 +1643,7 @@ def api_restore():
 
 def _safe_path_under_base(base_dir, archive_name):
     """Return absolute path under base_dir for an archive entry, or None if invalid."""
+    base_real = os.path.realpath(base_dir)
     entry = archive_name.replace('\\', '/')
     if entry.endswith('/'):
         return None
@@ -1650,8 +1651,8 @@ def _safe_path_under_base(base_dir, archive_name):
     if not parts or any(p == '..' for p in parts) or entry.startswith('/'):
         return None
     safe_name = '/'.join(parts)
-    dest = os.path.realpath(os.path.join(base_dir, safe_name))
-    if dest != base_dir and not dest.startswith(base_dir + os.sep):
+    dest = os.path.realpath(os.path.join(base_real, safe_name))
+    if os.path.commonpath([base_real, dest]) != base_real:
         return None
     return dest
 
@@ -1674,7 +1675,10 @@ def api_restore_graphs():
                 dest = _safe_path_under_base(base, name)
                 if not dest:
                     continue
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                parent_dir = os.path.realpath(os.path.dirname(dest))
+                if os.path.commonpath([base, parent_dir]) != base:
+                    continue
+                os.makedirs(parent_dir, exist_ok=True)
                 with zf.open(name) as src, open(dest, 'wb') as out:
                     shutil.copyfileobj(src, out)
                 count += 1
