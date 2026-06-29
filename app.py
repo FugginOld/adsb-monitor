@@ -1641,7 +1641,7 @@ def api_restore():
         HOST.run(['systemctl', 'try-restart', svc])
     return jsonify({'ok': True, 'restored': restored})
 
-def _safe_path_under_base(base_dir, archive_name):
+def _safe_path_under_base(base_dir, archive_name, require_rrd=False):
     """Return absolute path under base_dir for an archive entry, or None if invalid."""
     base_real = os.path.realpath(base_dir)
     entry = archive_name.replace('\\', '/')
@@ -1653,6 +1653,17 @@ def _safe_path_under_base(base_dir, archive_name):
     # Restrict each segment to a conservative safe character set.
     if any(not re.fullmatch(r'[A-Za-z0-9_.-]+', p) for p in parts):
         return None
+    if require_rrd:
+        # Graph restores must be collectd-style nested paths with a .rrd leaf.
+        if len(parts) < 2:
+            return None
+        if any(not re.fullmatch(r'[A-Za-z0-9_.-]+', p) for p in parts[:-1]):
+            return None
+        leaf = parts[-1]
+        if not leaf.endswith('.rrd'):
+            return None
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+\.rrd', leaf):
+            return None
     safe_name = '/'.join(parts)
     dest = os.path.realpath(os.path.join(base_real, safe_name))
     if os.path.commonpath([base_real, dest]) != base_real:
@@ -1675,11 +1686,8 @@ def api_restore_graphs():
         os.makedirs(base, exist_ok=True)
         with zipfile.ZipFile(f.stream) as zf:
             for name in zf.namelist():
-                dest = _safe_path_under_base(base, name)
+                dest = _safe_path_under_base(base, name, require_rrd=True)
                 if not dest:
-                    continue
-                # Graph restore should only write RRD files.
-                if not dest.endswith('.rrd'):
                     continue
                 parent_dir = os.path.realpath(os.path.dirname(dest))
                 if os.path.commonpath([base, parent_dir]) != base:
