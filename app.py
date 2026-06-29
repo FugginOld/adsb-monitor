@@ -1656,9 +1656,14 @@ def api_restore_graphs():
         os.makedirs(base, exist_ok=True)
         with zipfile.ZipFile(f.stream) as zf:
             for name in zf.namelist():
-                if name.endswith('/'):
+                entry = name.replace('\\', '/')
+                if entry.endswith('/'):
                     continue
-                dest = os.path.realpath(os.path.join(base, name))
+                parts = [p for p in entry.split('/') if p not in ('', '.')]
+                if not parts or any(p == '..' for p in parts) or entry.startswith('/'):
+                    continue
+                safe_name = '/'.join(parts)
+                dest = os.path.realpath(os.path.join(base, safe_name))
                 if dest != base and not dest.startswith(base + os.sep):
                     continue  # zip-slip guard: never escape the RRD dir
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
