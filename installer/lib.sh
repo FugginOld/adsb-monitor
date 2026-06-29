@@ -26,6 +26,7 @@ detect_arch() {
         *)       echo "unsupported" ;;
     esac
 }
+# shellcheck disable=SC2034  # consumed by scripts that source lib.sh (install-stack.sh)
 ARCH=$(detect_arch)
 
 # ── Package manager detection ───────────────────────────────────────────────

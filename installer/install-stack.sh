@@ -129,7 +129,6 @@ fi
 LAT=$(whiptail --title "Receiver Location" --inputbox "LATITUDE (decimal)\n\nExample: 27.88718" 11 60 "" 3>&1 1>&2 2>&3) || exit 1
 LON=$(whiptail --title "Receiver Location" --inputbox "LONGITUDE (decimal)\n\nExample: -82.25752" 11 60 "" 3>&1 1>&2 2>&3) || exit 1
 ALT_M=$(whiptail --title "Receiver Location" --inputbox "ALTITUDE in METERS\n\nExample: 25" 11 60 "25" 3>&1 1>&2 2>&3) || exit 1
-ALT_FT=$(awk "BEGIN{printf \"%d\", ${ALT_M} * 3.28084}")
 
 GAIN="$REC_GAIN"; SAMPLE_RATE="$REC_SAMPLE_RATE"
 if [ "$SDR_TYPE" = "airspy" ]; then

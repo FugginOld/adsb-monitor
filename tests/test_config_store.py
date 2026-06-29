@@ -4,7 +4,6 @@ The existing test_writers.py already covers set_feeder_settings docker/piaware
 behaviour; these add adapter-selection + the read side (get_feeder_settings).
 """
 import app as appmod
-from app import Result
 
 
 # ── _config_adapter selection (once, used by both read and write) ─────────────

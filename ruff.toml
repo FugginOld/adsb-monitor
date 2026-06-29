@@ -1,0 +1,11 @@
+# Ruff lint config. Scoped to real problems (pyflakes + meaningful pycodestyle
+# errors), not style churn — app.py deliberately uses a compact one-liner style.
+[lint]
+select = ["E", "F"]
+ignore = [
+  "E501",  # line too long — long config strings / table rows are intentional
+  "E701",  # `if cond: return` one-liners — the codebase's deliberate compact style
+  "E702",  # multiple statements via semicolon — same compact style
+  "E741",  # ambiguous single-letter name (e.g. `l`) — harmless here
+  "E401",  # multiple imports on one line — stdlib grouping, intentional
+]

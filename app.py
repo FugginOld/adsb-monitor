@@ -1741,7 +1741,7 @@ def make_tagged_app(port):
     return tagged_app
 
 def run_server(port):
-    from werkzeug.serving import make_server, ThreadedWSGIServer
+    from werkzeug.serving import ThreadedWSGIServer
     server = ThreadedWSGIServer('0.0.0.0', port, make_tagged_app(port))
     server.serve_forever()
 

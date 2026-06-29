@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel an in-progress run when a newer commit is pushed to the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor (README says 3.9+) and a current release.
+        python-version: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # flask is the only third-party runtime dep; tests mock the host seam,
+      # so no SDR/hardware is needed in the runner.
+      - run: pip install flask pytest
+      - run: pytest -q
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest  # shellcheck is preinstalled on GitHub-hosted runners
+    steps:
+      - uses: actions/checkout@v4
+      # --severity=warning skips info/style noise; SC1091 = "can't follow sourced
+      # file" (lib.sh is sourced at runtime, not present relative to the linter).
+      - run: shellcheck --severity=warning -e SC1091 install.sh update.sh installer/*.sh
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ruff
+      # Lint config (select/ignore) lives in ruff.toml so local `ruff check`
+      # matches CI exactly. Scoped to pyflakes + real pycodestyle errors.
+      - run: ruff check .

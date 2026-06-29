@@ -3,7 +3,6 @@
 Covers get_airspy_stats, get_readsb_deep_stats, _get_installed_version,
 airspy_live_hint, and two read-only routes (airspy settings, aircraft types).
 """
-import json
 import os
 
 import pytest
