@@ -1642,7 +1642,7 @@ def api_restore():
     return jsonify({'ok': True, 'restored': restored})
 
 def _safe_path_under_base(base_dir, archive_name, require_rrd=False):
-    """Return absolute path under base_dir for an archive entry, or None if invalid."""
+    """Return validated relative path parts for an archive entry, or None if invalid."""
     base_real = os.path.realpath(base_dir)
     entry = archive_name.replace('\\', '/')
     if entry.endswith('/'):
@@ -1664,11 +1664,10 @@ def _safe_path_under_base(base_dir, archive_name, require_rrd=False):
             return None
         if not re.fullmatch(r'[A-Za-z0-9_.-]+\.rrd', leaf):
             return None
-    safe_name = '/'.join(parts)
-    dest = os.path.realpath(os.path.join(base_real, safe_name))
+    dest = os.path.realpath(os.path.join(base_real, *parts))
     if os.path.commonpath([base_real, dest]) != base_real:
         return None
-    return dest
+    return tuple(parts)
 
 
 @app.route('/api/restore/graphs', methods=['POST'])
@@ -1686,10 +1685,11 @@ def api_restore_graphs():
         os.makedirs(base, exist_ok=True)
         with zipfile.ZipFile(f.stream) as zf:
             for name in zf.namelist():
-                dest = _safe_path_under_base(base, name, require_rrd=True)
-                if not dest:
+                safe_parts = _safe_path_under_base(base, name, require_rrd=True)
+                if not safe_parts:
                     continue
-                parent_dir = os.path.realpath(os.path.dirname(dest))
+                dest = os.path.realpath(os.path.join(base, *safe_parts))
+                parent_dir = os.path.realpath(os.path.join(base, *safe_parts[:-1]))
                 if os.path.commonpath([base, parent_dir]) != base:
                     continue
                 os.makedirs(parent_dir, exist_ok=True)
