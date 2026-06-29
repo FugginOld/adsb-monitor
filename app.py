@@ -1655,14 +1655,15 @@ def _safe_path_under_base(base_dir, archive_name, require_rrd=False):
         return None
     if require_rrd:
         # Graph restores must be collectd-style nested paths with a .rrd leaf.
+        # Per-segment character safety is already enforced above, so here we only
+        # check structure: nesting depth and a non-empty stem before '.rrd'. No
+        # regex on the leaf — '[A-Za-z0-9_.-]+\.rrd' backtracks polynomially on
+        # hostile input (the class overlaps the literal), and adds nothing the
+        # checks above don't already cover.
         if len(parts) < 2:
             return None
-        if any(not re.fullmatch(r'[A-Za-z0-9_.-]+', p) for p in parts[:-1]):
-            return None
         leaf = parts[-1]
-        if not leaf.endswith('.rrd'):
-            return None
-        if not re.fullmatch(r'[A-Za-z0-9_.-]+\.rrd', leaf):
+        if not leaf.endswith('.rrd') or len(leaf) <= len('.rrd'):
             return None
     dest = os.path.realpath(os.path.join(base_real, *parts))
     if os.path.commonpath([base_real, dest]) != base_real:
