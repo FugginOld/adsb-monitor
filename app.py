@@ -1675,10 +1675,16 @@ def api_restore_graphs():
                 dest = _safe_path_under_base(base, name)
                 if not dest:
                     continue
+                # Graph restore should only write RRD files.
+                if not dest.endswith('.rrd'):
+                    continue
                 parent_dir = os.path.realpath(os.path.dirname(dest))
                 if os.path.commonpath([base, parent_dir]) != base:
                     continue
                 os.makedirs(parent_dir, exist_ok=True)
+                # Refuse to follow pre-existing symlinks at write target.
+                if os.path.islink(dest):
+                    continue
                 with zf.open(name) as src, open(dest, 'wb') as out:
                     shutil.copyfileobj(src, out)
                 count += 1
