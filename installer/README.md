@@ -50,10 +50,60 @@ sudo ./install-stack.sh
    - **Nooelec NESDR SMArt / SMArTee** → readsb direct
    - **SDRplay RSP1A / RSPdx** → SDRplay API + dump1090 (partly manual)
 2. Installs readsb + tar1090, the SDR decoder, graphs1090
-3. Installs your selected feeders
-4. Installs adsb-monitor with a matching feeders.ini
+3. **If two RTL-SDRs are present**, offers dual-band: 1090 MHz ADS-B + 978 MHz UAT (see below)
+4. Installs your selected feeders
+5. Installs adsb-monitor with a matching feeders.ini
 
 If no SDR is detected, you can pick the type manually or retry the scan.
+
+## Dual-band — 1090 + 978 UAT
+
+With two RTL-SDR dongles the installer can decode **1090 MHz ADS-B** (readsb) and
+**978 MHz UAT** (dump978-fa) at once, merging both onto one tar1090 map. 978 UAT
+is a US-only band.
+
+### One-time: give each dongle a unique serial
+
+Two identical dongles can't be told apart until each has its own USB serial. Plug
+both in and run:
+
+```bash
+sudo apt-get install -y rtl-sdr
+rtl_test -t                       # list dongles + current serials
+sudo rtl_eeprom -d 0 -s 00001090  # the 1090 stick
+sudo rtl_eeprom -d 1 -s 00000978  # the 978 stick
+# then physically unplug and replug both so the kernel re-reads the serials
+```
+
+The installer uses the stick whose serial contains **978** for UAT and the other
+for 1090. Re-run `rtl_test -t` to confirm both serials stuck.
+
+### What dual-band installs
+
+- **dump978-fa** — built from source (Boost + SoapySDR), bound to the 978 stick
+- **skyaware978** — writes the UAT `aircraft.json` the dashboard and graphs1090 read
+- readsb gains `--net-connector 127.0.0.1,30978,uat_in` so 978 merges into the map
+- a `dump978 (978 UAT)` card appears under **core services** in the monitor
+
+### Running in a container (Proxmox LXC, etc.)
+
+Containers usually have no `udev` to grant the decoder's service user USB access,
+so the installer pins the SDR services to `root` automatically. Two host-side
+steps are still required for RTL-SDR passthrough:
+
+```bash
+# on the host — stop the kernel DVB driver grabbing the dongles
+echo -e 'blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830' \
+  > /etc/modprobe.d/blacklist-rtlsdr.conf
+
+# pass the USB bus into the container — add to /etc/pve/lxc/<CTID>.conf:
+#   lxc.cgroup2.devices.allow: c 189:* rwm
+#   lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir
+
+# low-traffic 978 dongle gets dropped by USB autosuspend — disable it on the host
+echo on | tee /sys/bus/usb/devices/*/power/control   # immediate
+# persistent: add  usbcore.autosuspend=-1  to GRUB_CMDLINE_LINUX_DEFAULT, update-grub, reboot
+```
 
 ## Update
 
@@ -65,6 +115,10 @@ sudo ./update-stack.sh --all   # update everything non-interactively
 Updates airspy_adsb, readsb+tar1090, graphs1090 from upstream, and re-deploys
 the monitor from this folder. **Preserves** your `feeders.ini` and `history.db`.
 Prints current versions when done.
+
+> **dump978-fa** is built from source, not covered by `update-stack.sh`. To update
+> it, re-clone `flightaware/dump978`, `dpkg-buildpackage -b -uc -us`, and
+> `dpkg -i ../dump978-fa_*.deb ../skyaware978_*.deb`.
 
 ## Uninstall
 

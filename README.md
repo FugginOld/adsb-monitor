@@ -10,13 +10,14 @@ A self-hosted web dashboard for monitoring an ADS-B receiver station. Shows live
 |---|---|
 | **Live status** | Active / down badge for every feeder and service, with last-seen time |
 | **Uptime history** | 7-day daily bars + aggregate % per service, backed by SQLite |
-| **Signal quality** | Airspy gain recommendation based on SNR / noise / RSSI |
+| **Dual-band** | 1090 MHz ADS-B + 978 MHz UAT on two RTL-SDRs, merged onto one map |
+| **Per-band signal** | 1090 block (RSSI / SNR / noise) and 978 block (RSSI), shown only for present bands; Airspy block hidden when absent |
 | **readsb deep stats** | Aircraft count, message rate, range, signal metrics |
 | **Version checking** | Current vs latest for each stack component |
-| **Settings** | Edit sharing keys, lat/lon/altitude, receiver options in-browser |
-| **Log streaming** | Live tail of any feeder's systemd journal or Docker log, plus a whole-system journal window in Settings |
+| **Settings** | Per-SDR gain + bias-tee (1090 / 978), sharing keys, lat/lon/altitude, receiver options in-browser |
+| **Log streaming** | Live tail of any feeder's systemd journal or Docker log (with Copy), plus a whole-system journal window in Settings |
 | **Service control** | Restart any service (admin port only) |
-| **Backup** | One-click download of all config files |
+| **Backup / restore** | Download config or graph data (collectd RRDs); import either back |
 
 ---
 
@@ -43,8 +44,10 @@ app.py  (single Python file, Flask)
 │   Single kind-dispatch; callers never branch on service vs docker.
 │
 └── Flask routes  (admin :5000 · read-only :5001)
-    /api/status · /api/alerts · /api/stats/* · /api/settings/*
-    /api/service/<name>/restart · /api/logs/<key> · /api/backup
+    /api/status · /api/alerts · /api/stats/* (incl. /api/stats/bands)
+    /api/settings/* (incl. /api/settings/sdr/<1090|978>)
+    /api/service/<name>/restart · /api/logs/<key>
+    /api/backup · /api/backup/graphs · /api/restore · /api/restore/graphs
 ```
 
 ### Two ports
@@ -83,6 +86,7 @@ At startup `detect_init()` probes the host and selects the right adapter:
 | FlightAware Pro Stick / Plus | readsb |
 | Nooelec NESDR SMArt / SMArTee | readsb |
 | SDRplay RSP1A / RSPdx | SDRplay API + dump1090 (partly manual) |
+| **2× RTL-SDR (dual-band)** | readsb (1090) + dump978-fa (978 UAT), merged on one map |
 
 ---
 
@@ -124,6 +128,9 @@ Set `ADSB_FORCE=1` to skip the compatibility prompt on experimental/unsupported 
 - `flask` (`pip install flask`)
 - `sqlite3` (stdlib)
 - systemd **or** OpenRC (service control); monitor-only mode works without either
+- **Dual-band (978 UAT) only:** `dump978-fa` + `skyaware978` (built by the installer),
+  `soapysdr-module-rtlsdr`, and `rtl-sdr` for `rtl_test` / `rtl_eeprom` / `rtl_biast`.
+  See [CREDIT.md](CREDIT.md) for the full list.
 
 ---
 

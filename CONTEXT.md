@@ -13,6 +13,15 @@ architecture terms describe *how the code is shaped* (seams, adapters, modules).
   state-change events in SQLite.
 - **Gain recommendation** — SNR/noise/RSSI thresholds → a suggested ±dB airspy gain
   change.
+- **Band** — a receive frequency the station decodes: **1090** MHz ADS-B (readsb) or
+  **978** MHz UAT (dump978-fa). `get_band_stats()` returns one block per present band
+  for the sidebar; presence is detected from config, not hardcoded.
+- **Dual-band** — running both bands at once on two RTL-SDRs, each pinned by USB
+  serial. dump978-fa's output is merged into readsb via its `uat_in` net-connector so
+  one tar1090 map shows both. 978 exposes RSSI + aircraft only (no SNR/noise floor).
+- **Bias-tee** — DC fed up the coax to power an inline LNA. Per-SDR toggle, off by
+  default, confirmed on enable: 1090 via an `rtl_biast` `ExecStartPre`, 978 via
+  SoapySDR's `biastee=true`.
 - **Feeder health** — the live-host answer to "what is this Feeder doing right now":
   `FeederHealth{status, detail, last_seen, running_for}`. Distinct from historical
   **Uptime** (a SQLite aggregation). Produced by the **Feeder probe**.

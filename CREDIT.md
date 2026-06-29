@@ -20,6 +20,21 @@ The installer also uses:
 
 ---
 
+## 978 MHz UAT (dual-band)
+
+When two RTL-SDRs are present, the installer adds 978 MHz UAT decoding alongside
+1090 MHz ADS-B and merges both onto one map.
+
+| Tool | Purpose | Link |
+| --- | --- | --- |
+| **dump978-fa** | FlightAware's 978 MHz UAT decoder (built from source) | https://github.com/flightaware/dump978 |
+| **skyaware978** | Companion to dump978-fa; writes the UAT `aircraft.json` the dashboard and graphs1090 read | https://github.com/flightaware/dump978 |
+
+dump978-fa's 978 output is fed into readsb via its `uat_in` net-connector, so
+tar1090 shows 1090 + 978 traffic on a single map.
+
+---
+
 ## SDR hardware and decoders
 
 | Device | Decoder | Notes |
@@ -35,6 +50,21 @@ The installer also uses:
 - **FlightAware**: https://flightaware.com/adsb/prostick
 - **Nooelec**: https://www.nooelec.com
 - **SDRplay**: https://www.sdrplay.com
+
+---
+
+## Build & SDR tooling
+
+Used by the installer to build dump978-fa, address dongles by serial, and drive
+bias-tee — most are pulled in automatically on dual-band installs.
+
+| Tool / library | Purpose | Link |
+| --- | --- | --- |
+| **rtl-sdr** (`rtl_test`, `rtl_eeprom`, `rtl_biast`) | Probe dongles, assign serials, toggle bias-tee | https://github.com/osmocom/rtl-sdr |
+| **SoapySDR** + **soapysdr-module-rtlsdr** | SDR abstraction dump978-fa uses to open the 978 dongle | https://github.com/pothosware/SoapySDR |
+| **Boost** (program-options, regex, filesystem) | C++ libraries dump978-fa builds against | https://www.boost.org |
+| **collectd** | Samples readsb/skyaware978 stats into RRD time series | https://www.collectd.org |
+| **rrdtool** | Round-robin database + graph rendering behind graphs1090 | https://oss.oetiker.ch/rrdtool |
 
 ---
 
