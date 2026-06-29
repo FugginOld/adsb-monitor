@@ -1641,6 +1641,21 @@ def api_restore():
         HOST.run(['systemctl', 'try-restart', svc])
     return jsonify({'ok': True, 'restored': restored})
 
+def _safe_path_under_base(base_dir, archive_name):
+    """Return absolute path under base_dir for an archive entry, or None if invalid."""
+    entry = archive_name.replace('\\', '/')
+    if entry.endswith('/'):
+        return None
+    parts = [p for p in entry.split('/') if p not in ('', '.')]
+    if not parts or any(p == '..' for p in parts) or entry.startswith('/'):
+        return None
+    safe_name = '/'.join(parts)
+    dest = os.path.realpath(os.path.join(base_dir, safe_name))
+    if dest != base_dir and not dest.startswith(base_dir + os.sep):
+        return None
+    return dest
+
+
 @app.route('/api/restore/graphs', methods=['POST'])
 @admin_required
 def api_restore_graphs():
@@ -1656,16 +1671,9 @@ def api_restore_graphs():
         os.makedirs(base, exist_ok=True)
         with zipfile.ZipFile(f.stream) as zf:
             for name in zf.namelist():
-                entry = name.replace('\\', '/')
-                if entry.endswith('/'):
+                dest = _safe_path_under_base(base, name)
+                if not dest:
                     continue
-                parts = [p for p in entry.split('/') if p not in ('', '.')]
-                if not parts or any(p == '..' for p in parts) or entry.startswith('/'):
-                    continue
-                safe_name = '/'.join(parts)
-                dest = os.path.realpath(os.path.join(base, safe_name))
-                if dest != base and not dest.startswith(base + os.sep):
-                    continue  # zip-slip guard: never escape the RRD dir
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with zf.open(name) as src, open(dest, 'wb') as out:
                     shutil.copyfileobj(src, out)
