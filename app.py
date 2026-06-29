@@ -1650,6 +1650,9 @@ def _safe_path_under_base(base_dir, archive_name):
     parts = [p for p in entry.split('/') if p not in ('', '.')]
     if not parts or any(p == '..' for p in parts) or entry.startswith('/'):
         return None
+    # Restrict each segment to a conservative safe character set.
+    if any(not re.fullmatch(r'[A-Za-z0-9_.-]+', p) for p in parts):
+        return None
     safe_name = '/'.join(parts)
     dest = os.path.realpath(os.path.join(base_real, safe_name))
     if os.path.commonpath([base_real, dest]) != base_real:
@@ -1682,11 +1685,22 @@ def api_restore_graphs():
                 if os.path.commonpath([base, parent_dir]) != base:
                     continue
                 os.makedirs(parent_dir, exist_ok=True)
-                # Refuse to follow pre-existing symlinks at write target.
+                # Refuse to follow symlinks at write target.
                 if os.path.islink(dest):
                     continue
-                with zf.open(name) as src, open(dest, 'wb') as out:
-                    shutil.copyfileobj(src, out)
+                flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                if hasattr(os, 'O_NOFOLLOW'):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(dest, flags, 0o644)
+                try:
+                    with zf.open(name) as src, os.fdopen(fd, 'wb') as out:
+                        shutil.copyfileobj(src, out)
+                except Exception:
+                    try:
+                        os.close(fd)
+                    except Exception:
+                        pass
+                    raise
                 count += 1
     except zipfile.BadZipFile:
         HOST.run(['systemctl', 'start', 'collectd'])
