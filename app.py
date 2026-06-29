@@ -547,10 +547,14 @@ def _uat_msg_rate(msgs, now):
     return round((msgs - prev_m) / (now - prev_t))
 
 def get_band_stats():
+    # has_rtl1090: readsb is driving an RTL dongle, not just aggregating an Airspy
+    # feed (the Airspy path runs readsb with --net-only and has no local SDR/signal).
+    readsb_text = HOST.read_text(READSB_DEFAULT) or ''
+    has_rtl1090 = '--device-type rtlsdr' in readsb_text
     out = {
-        'has_airspy': os.path.exists(AIRSPY_DEFAULT),
-        'has_readsb': os.path.exists(READSB_DEFAULT),
-        'has_978':    os.path.exists(DUMP978_DEFAULT),
+        'has_airspy':  os.path.exists(AIRSPY_DEFAULT),
+        'has_rtl1090': has_rtl1090,
+        'has_978':     os.path.exists(DUMP978_DEFAULT),
         'b1090': None, 'b978': None,
     }
     uat_count = 0
@@ -566,7 +570,7 @@ def get_band_stats():
             'rssi':     round(sum(rssis) / len(rssis), 1) if rssis else None,
             'msg_rate': _uat_msg_rate(sky.get('messages'), sky.get('now')),
         }
-    if out['has_readsb']:
+    if has_rtl1090:
         stats = HOST.read_json(os.path.join(READSB_JSON, 'stats.json')) or {}
         local = stats.get('last1min', {}).get('local', {})
         signal, noise = local.get('signal'), local.get('noise')

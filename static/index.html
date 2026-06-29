@@ -810,7 +810,7 @@ async function loadSignalStats() {
   if (bands.has_airspy) loadAirspySignal();
   toggleEl('panel-1090', !!bands.b1090); if (bands.b1090) fillBand('b1090', bands.b1090);
   toggleEl('panel-978',  !!bands.b978);  if (bands.b978)  fillBand('b978',  bands.b978);
-  toggleEl('sdr1090-card', bands.has_readsb);  // settings cards: only for present SDRs
+  toggleEl('sdr1090-card', bands.has_rtl1090);  // settings cards: only for present SDRs
   toggleEl('sdr978-card',  bands.has_978);
 }
 
