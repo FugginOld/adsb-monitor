@@ -1567,7 +1567,10 @@ CONFIG_BACKUP_FILES = {
     'readsb-biastee.conf':  BIASTEE_1090_CONF,
     'adsb-monitor.service': '/etc/systemd/system/adsb-monitor.service',
 }
-GRAPHS_RRD_DIR = '/var/lib/collectd/rrd/localhost'
+# collectd RRD base. We back up the whole tree (the host-named subdir varies:
+# graphs1090 may use 'localhost' or the real hostname), so the graph data is
+# captured regardless, and restored to the same place.
+GRAPHS_RRD_DIR = '/var/lib/collectd/rrd'
 
 @app.route('/api/backup')
 @admin_required
