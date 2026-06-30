@@ -1204,6 +1204,71 @@ def write_sdr978(gain, biastee):
         out.append(line)
     HOST.write_text(DUMP978_DEFAULT, '\n'.join(out) + '\n')
 
+# ── SDR presence guard (1090 readsb + 978 dump978) ─────────────────────────
+# A decoder crash-loops (or grabs the wrong stick) when its RTL dongle is gone.
+# If the configured serial isn't on USB, stop the decoder gracefully; when the
+# stick returns, resume the decoder *we* stopped (a manual stop is never undone).
+# Runs at startup (covers reboots) and every poll (covers live un/replugs).
+# Airspy / net-only 1090 has no local stick, so it's left alone.
+# ───────────────────────────────────────────────────────────────────────────
+
+# Services we stopped for a missing stick — only these are eligible for auto-resume.
+# ponytail: in-memory set, fine for one monitor process; resets on restart (re-derived next poll).
+_sdr_autostopped = set()
+
+def _sdr1090_serial():
+    text = HOST.read_text(READSB_DEFAULT) or ''
+    if '--device-type rtlsdr' not in text:
+        return None  # Airspy / net-only — no local 1090 stick
+    return _opt_in_receiver(text, '--device')
+
+def _sdr978_serial():
+    m = re.search(r'--sdr\s+driver=rtlsdr,serial=([^\s",]+)', HOST.read_text(DUMP978_DEFAULT) or '')
+    return m.group(1) if m else None
+
+def _rtl_present(serial):
+    """True/False if an RTL stick with `serial` is on USB; None if no serial to match."""
+    if not serial:
+        return None  # auto-device setups have no specific serial — leave alone
+    r = HOST.run(['/bin/sh', '-c', 'for i in 0 1 2 3; do rtl_eeprom -d $i 2>&1; done'])
+    return serial in (r.out + r.err)
+
+def _airspy_present():
+    """True/False if an Airspy is on USB; None if this host has no Airspy decoder."""
+    if HOST.read_text(AIRSPY_DEFAULT) is None:
+        return None
+    return detect_airspy_model() != 'unknown'
+
+def _enforce_sdr(service, present_fn):
+    """Stop `service` when its SDR is gone; resume the one we stopped when it returns.
+
+    present_fn() -> True/False/None (None = not applicable on this host, skip).
+    We only probe while the decoder is inactive/failed — the device is free then, so
+    both rtl_eeprom and lsusb read reliably; an active decoder is proof enough it's present.
+    """
+    state = systemd_status(service)[1]
+    if state == 'active':
+        _sdr_autostopped.discard(service)  # reading fine = SDR present; clear stale flag
+        return
+    if state not in ('inactive', 'failed'):
+        return  # activating/reloading — let it settle before probing
+    present = present_fn()
+    if present is None:
+        return
+    if not present:
+        service_action(service, 'stop')
+        _sdr_autostopped.add(service)
+        logger.warning("SDR not detected — stopped %s", service)
+    elif service in _sdr_autostopped:
+        service_action(service, 'start')
+        _sdr_autostopped.discard(service)
+        logger.info("SDR back — started %s", service)
+
+def enforce_sdr_presence():
+    _enforce_sdr('readsb',      lambda: _rtl_present(_sdr1090_serial()))
+    _enforce_sdr('dump978-fa',  lambda: _rtl_present(_sdr978_serial()))
+    _enforce_sdr('airspy_adsb', _airspy_present)
+
 # ── Log streaming ──────────────────────────────────────────────────────────
 # Streams live logs to the browser via Server-Sent Events. `_log_command` builds
 # the follow command (`journalctl -u <unit> -f` for services, `docker logs -f`
@@ -1266,6 +1331,10 @@ def background_poll():
     consecutive_errors = 0
     while True:
         try:
+            try:
+                enforce_sdr_presence()
+            except Exception:
+                pass
             feeders = load_config()
             for f in feeders:
                 try:
