@@ -1,6 +1,6 @@
 """enforce_sdr_presence: stop a decoder when its SDR is unplugged, resume on replug.
 
-Covers RTL sticks (readsb 1090, dump978 978) probed via rtl_eeprom and Airspy
+Covers RTL sticks (readsb 1090, dump978 978) probed via sysfs serials and Airspy
 probed via lsusb. Auto-resume fires only for a service the guard itself stopped.
 """
 import pytest
@@ -10,7 +10,7 @@ from app import Result
 
 RTL1090 = 'RECEIVER_OPTIONS="--device-type rtlsdr --device 00001090 --gain auto"'
 RTL978  = 'RECEIVER_OPTIONS="--sdr driver=rtlsdr,serial=00000978"'
-EEPROM  = ('/bin/sh', '-c', 'for i in 0 1 2 3; do rtl_eeprom -d $i 2>&1; done')
+USBSER  = ('/bin/sh', '-c', 'cat /sys/bus/usb/devices/*/serial 2>/dev/null')
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,7 @@ def test_1090_absent_stops_readsb(fake_host):
     fake_host.files = {appmod.READSB_DEFAULT: RTL1090}
     fake_host.commands = {
         ('systemctl', 'is-active', 'readsb'): Result(3, 'failed', ''),
-        EEPROM: Result(0, 'Serial number:\t\t00000978', ''),   # only the 978 stick
+        USBSER: Result(0, '00000978\n', ''),   # only the 978 stick
     }
     appmod.enforce_sdr_presence()
     assert _did(fake_host, 'readsb', 'stop')
@@ -40,7 +40,7 @@ def test_1090_present_left_alone(fake_host):
     fake_host.files = {appmod.READSB_DEFAULT: RTL1090}
     fake_host.commands = {
         ('systemctl', 'is-active', 'readsb'): Result(0, 'inactive', ''),
-        EEPROM: Result(0, 'Serial number:\t\t00001090', ''),
+        USBSER: Result(0, '00001090\n', ''),
     }
     appmod.enforce_sdr_presence()
     assert not _did(fake_host, 'readsb', 'stop')
@@ -59,7 +59,7 @@ def test_978_unplug_then_resume(fake_host):
     fake_host.files = {appmod.DUMP978_DEFAULT: RTL978}
     fake_host.commands = {
         ('systemctl', 'is-active', 'dump978-fa'): Result(3, 'failed', ''),
-        EEPROM: Result(0, 'Serial number:\t\t00001090', ''),   # 978 stick gone
+        USBSER: Result(0, '00001090\n', ''),   # 978 stick gone
     }
     appmod.enforce_sdr_presence()
     assert _did(fake_host, 'dump978-fa', 'stop')
@@ -68,7 +68,7 @@ def test_978_unplug_then_resume(fake_host):
     fake_host.calls.clear()
     fake_host.commands = {
         ('systemctl', 'is-active', 'dump978-fa'): Result(0, 'inactive', ''),
-        EEPROM: Result(0, 'Serial number:\t\t00000978', ''),
+        USBSER: Result(0, '00001090\n00000978\n', ''),
     }
     appmod.enforce_sdr_presence()
     assert _did(fake_host, 'dump978-fa', 'start')
@@ -80,7 +80,7 @@ def test_978_not_resumed_if_manually_stopped(fake_host):
     fake_host.files = {appmod.DUMP978_DEFAULT: RTL978}
     fake_host.commands = {
         ('systemctl', 'is-active', 'dump978-fa'): Result(0, 'inactive', ''),
-        EEPROM: Result(0, 'Serial number:\t\t00000978', ''),
+        USBSER: Result(0, '00000978\n', ''),
     }
     appmod.enforce_sdr_presence()
     assert not _did(fake_host, 'dump978-fa', 'start')

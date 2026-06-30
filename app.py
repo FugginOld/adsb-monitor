@@ -1227,11 +1227,18 @@ def _sdr978_serial():
     return m.group(1) if m else None
 
 def _rtl_present(serial):
-    """True/False if an RTL stick with `serial` is on USB; None if no serial to match."""
+    """True/False if an RTL stick with `serial` is on USB; None if no serial to match.
+
+    Reads the USB serial straight from sysfs — no rtlsdr_open(), so it never
+    claims or resets a device. The old rtl_eeprom -d 0..3 loop opened every
+    stick (incl. the *active* 1090), resetting it mid-stream; and when the four
+    opens overran the 10s budget it timed out and falsely reported the 978
+    absent, so it never auto-resumed on replug.
+    """
     if not serial:
         return None  # auto-device setups have no specific serial — leave alone
-    r = HOST.run(['/bin/sh', '-c', 'for i in 0 1 2 3; do rtl_eeprom -d $i 2>&1; done'])
-    return serial in (r.out + r.err)
+    r = HOST.run(['/bin/sh', '-c', 'cat /sys/bus/usb/devices/*/serial 2>/dev/null'], timeout=5)
+    return serial in r.out.split()
 
 def _airspy_present():
     """True/False if an Airspy is on USB; None if this host has no Airspy decoder."""
@@ -1243,8 +1250,8 @@ def _enforce_sdr(service, present_fn):
     """Stop `service` when its SDR is gone; resume the one we stopped when it returns.
 
     present_fn() -> True/False/None (None = not applicable on this host, skip).
-    We only probe while the decoder is inactive/failed — the device is free then, so
-    both rtl_eeprom and lsusb read reliably; an active decoder is proof enough it's present.
+    An active decoder is proof its SDR is present, so we skip the probe then and
+    just clear any stale auto-stop flag; we probe only once it's inactive/failed.
     """
     state = systemd_status(service)[1]
     if state == 'active':
