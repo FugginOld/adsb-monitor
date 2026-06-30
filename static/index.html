@@ -688,12 +688,14 @@ function makeCard(f) {
   let hint = f.hint||'';
   if (f.key==='tar1090') hint='Live map embedded';
   let ver='', uptime='', lastSeen='';
-  if (f.version) {
-    const vs = f.version.startsWith('v')?f.version:'v'+f.version;
-    const upd = f.outdated?`<span class="update-badge" title="Latest: ${f.latest||''}">⬆ update</span>`:'';
-    ver=`<span class="version-tag">${vs}</span>${upd}`;
-  } else if (f.version === null) {
-    ver=`<span class="version-tag" style="color:var(--text3)">checking...</span>`;
+  if (CORE_KEYS.includes(f.key)) {  // version only matters for core services, not feeders
+    if (f.version) {
+      const vs = f.version.startsWith('v')?f.version:'v'+f.version;
+      const upd = f.outdated?`<span class="update-badge" title="Latest: ${f.latest||''}">⬆ update</span>`:'';
+      ver=`<span class="version-tag">${vs}</span>${upd}`;
+    } else if (f.version === null) {
+      ver=`<span class="version-tag" style="color:var(--text3)">checking...</span>`;
+    }
   }
   if (f.uptime_str) uptime=`<span class="uptime-tag" title="Running for"><i class="ti ti-clock" style="font-size:10px"></i> ${f.uptime_str}</span>`;
   if (f.uptime_pct !== null && f.uptime_pct !== undefined) {
