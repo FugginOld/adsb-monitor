@@ -618,6 +618,13 @@ VERSION_SOURCES = {
         'installed_re':  r'airspy_adsb\s+v?([\d.\w-]+)',
         'latest_url':    None,
     },
+    'dump978-fa': {
+        # dump978-fa has no --version; read the installed deb version. No upstream
+        # version file, so latest_url=None — show the version, skip the update check.
+        'installed_cmd': ['dpkg-query', '-W', "-f=${Version}", 'dump978-fa'],
+        'installed_re':  r'([\d.]+)',
+        'latest_url':    None,
+    },
 }
 
 _version_cache = {}
@@ -1411,15 +1418,18 @@ def api_status():
         uptime_pct  = get_service_uptime_pct(f['key'], days=7)
         uptime_bars = get_uptime_bars(f['key'], days=7)
 
-        results.append({
+        entry = {
             **f, 'status': health.status, 'detail': health.detail, 'hint': hint,
-            'version': ver.get('installed'), 'latest': ver.get('latest'),
-            'outdated': ver.get('outdated', False),
             'uptime_str':  health.running_for,
             'uptime_pct':  uptime_pct,
             'uptime_bars': uptime_bars,
             'last_seen':   health.last_seen,
-        })
+        }
+        if f['key'] in VERSION_SOURCES:  # no source (e.g. dump978-fa) → no pill, not a stuck "checking…"
+            entry['version']  = ver.get('installed')
+            entry['latest']   = ver.get('latest')
+            entry['outdated'] = ver.get('outdated', False)
+        results.append(entry)
     return jsonify({'feeders': results, 'metrics': readsb_metrics()})
 
 @app.route('/api/stats/airspy')
