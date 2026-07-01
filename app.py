@@ -184,10 +184,9 @@ def run_server(port):
     server = ThreadedWSGIServer('0.0.0.0', port, make_tagged_app(port))
     server.serve_forever()
 
-if __name__ == '__main__':
-    init_db()
-    # Start background threads — version refresh is fully async, never blocks startup
-    threading.Thread(target=refresh_versions, daemon=True).start()
-    threading.Thread(target=background_poll,  daemon=True).start()
-    threading.Thread(target=run_server, args=(READONLY_PORT,), daemon=True).start()
-    run_server(ADMIN_PORT)
+# No `if __name__ == '__main__':` here on purpose: system/*.py modules do
+# `import app` to reach HOST/INIT/DB_FILE (see route-module-split.md §7/§9).
+# Running this file directly would execute it once as `__main__` and again
+# as `app` when those imports fire, colliding mid-import
+# (ImportError: partially initialized module 'system.auth'). Start the
+# server via run.py instead, which only ever imports this module by name.

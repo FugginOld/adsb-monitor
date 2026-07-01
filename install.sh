@@ -18,6 +18,7 @@ echo "==> Installing ADS-B monitor to ${DEST}..."
 sudo mkdir -p ${DEST}/static
 
 sudo cp app.py          ${DEST}/app.py
+sudo cp run.py          ${DEST}/run.py
 sudo cp -r system       ${DEST}/system
 sudo cp -r routes       ${DEST}/routes
 sudo cp feeders.ini     ${DEST}/feeders.ini
@@ -42,7 +43,7 @@ After=network.target readsb.service
 Type=simple
 User=root
 WorkingDirectory=${DEST}
-ExecStart=${DEST}/venv/bin/python app.py
+ExecStart=${DEST}/venv/bin/python run.py
 Restart=always
 RestartSec=5
 Environment="TAR1090_URL_LOCAL=http://${PI_IP}:8504"
