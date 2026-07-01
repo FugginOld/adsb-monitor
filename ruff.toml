@@ -9,3 +9,8 @@ ignore = [
   "E741",  # ambiguous single-letter name (e.g. `l`) — harmless here
   "E401",  # multiple imports on one line — stdlib grouping, intentional
 ]
+
+[lint.per-file-ignores]
+# app.py re-exports moved system/* names so existing tests (`import app as
+# appmod; appmod.X(...)`) keep working unchanged — see route-module-split.md §5.
+"app.py" = ["F401"]
