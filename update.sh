@@ -15,6 +15,8 @@ DEST=/opt/adsb-monitor
 
 echo "==> Updating ADS-B monitor files..."
 sudo cp app.py            ${DEST}/app.py
+sudo cp -r system         ${DEST}/system
+sudo cp -r routes         ${DEST}/routes
 sudo cp static/index.html ${DEST}/static/index.html
 # Note: feeders.ini is NOT overwritten to preserve your customizations
 

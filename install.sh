@@ -18,6 +18,8 @@ echo "==> Installing ADS-B monitor to ${DEST}..."
 sudo mkdir -p ${DEST}/static
 
 sudo cp app.py          ${DEST}/app.py
+sudo cp -r system       ${DEST}/system
+sudo cp -r routes       ${DEST}/routes
 sudo cp feeders.ini     ${DEST}/feeders.ini
 sudo cp static/index.html ${DEST}/static/index.html
 
