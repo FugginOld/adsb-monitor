@@ -19,6 +19,10 @@ sudo mkdir -p ${DEST}/static
 
 sudo cp app.py          ${DEST}/app.py
 sudo cp run.py          ${DEST}/run.py
+# rm -rf then copy: if ${DEST}/system already exists (re-running install.sh),
+# `cp -r system ${DEST}/system` nests a copy inside it instead of overwriting,
+# and stale/removed modules are left behind for Python to load by accident.
+sudo rm -rf ${DEST}/system ${DEST}/routes
 sudo cp -r system       ${DEST}/system
 sudo cp -r routes       ${DEST}/routes
 sudo cp feeders.ini     ${DEST}/feeders.ini
