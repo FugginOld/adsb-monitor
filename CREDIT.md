@@ -1,12 +1,12 @@
 # Credits
 
-ADS-B Stack Monitor is a thin dashboard layer on top of a stack of excellent open-source tools and community feeder networks. This project would not exist without them.
+ADS-B Stack Monitor is a thin dashboard layer on top of a stack of existing open-source tools and community feeder networks.
 
 ---
 
 ## Core stack — wiedehopf
 
-The heart of the receiver station is three tools by **wiedehopf**:
+The core of the receiver station are three tools by **wiedehopf**:
 
 | Tool | Purpose | Link |
 | --- | --- | --- |
