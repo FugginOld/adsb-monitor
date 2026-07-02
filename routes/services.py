@@ -1,4 +1,6 @@
 """Service restart route."""
+from typing import Any
+
 from flask import Blueprint, jsonify
 
 from system.auth import admin_required
@@ -10,7 +12,7 @@ bp = Blueprint('services', __name__)
 
 @bp.route('/api/service/<name>/restart', methods=['POST'])
 @admin_required
-def restart_service(name):
+def restart_service(name: str) -> Any:
     allowed = {f['key'] for f in load_config()}
     if name not in allowed:
         return jsonify({'ok': False, 'error': 'unknown service'})

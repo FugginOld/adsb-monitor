@@ -6,6 +6,8 @@ the presence guard — both of those depend on this, not the other way round.
 
 `HOST` stays defined in app.py, reached via `import app`.
 """
+from __future__ import annotations
+
 import re
 
 import app
@@ -13,7 +15,7 @@ import app
 MINI_IDS = {'60a1'}
 R2_IDS   = {'60a8', '0002'}
 
-def detect_airspy_model():
+def detect_airspy_model() -> str:
     for line in app.HOST.run(['lsusb'], timeout=5).out.splitlines():
         if '1d50' not in line.lower() and 'airspy' not in line.lower():
             continue

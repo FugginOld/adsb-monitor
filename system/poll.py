@@ -23,18 +23,23 @@ presence and per-feeder failures were silently swallowed and never affected
 backoff (only `load_config()`/metrics failures did) — that was an inconsistency,
 not a deliberate design, so this now backs off on any step failing.
 """
+from __future__ import annotations
+
 import time
+from typing import Callable, NoReturn
 
 from system.config_io import load_config
 from system.db import record_metrics, record_service_event
 from system.feeders import feeder_status, readsb_metrics
 from system.sdr_presence import enforce_sdr_presence
 
+Step = Callable[[], None]
 
-def _enforce_sdr_presence_step():
+
+def _enforce_sdr_presence_step() -> None:
     enforce_sdr_presence()
 
-def _record_feeder_statuses_step():
+def _record_feeder_statuses_step() -> None:
     """Record every feeder's status. One feeder failing doesn't stop the
     others from being recorded, but is still surfaced once so the poller
     backs off like any other step failure."""
@@ -48,14 +53,14 @@ def _record_feeder_statuses_step():
     if any_failed:
         raise RuntimeError('one or more feeders failed to record status')
 
-def _sample_metrics_step():
+def _sample_metrics_step() -> None:
     m = readsb_metrics()
     record_metrics(m['aircraft'], m['msg_rate'], m['max_range_nm'])
 
-def _default_steps():
+def _default_steps() -> list[Step]:
     return [_enforce_sdr_presence_step, _record_feeder_statuses_step, _sample_metrics_step]
 
-def _poll_once(steps):
+def _poll_once(steps: list[Step]) -> int:
     """Run each step once, isolating failures from each other.
 
     Returns how many steps raised.
@@ -68,11 +73,12 @@ def _poll_once(steps):
             error_count += 1
     return error_count
 
-def _backoff_seconds(error_count):
+def _backoff_seconds(error_count: int) -> int:
     """30s normal, doubling per consecutive bad cycle, capped at 5min."""
-    return min(30 * (2 ** min(error_count, 4)), 300)
+    return int(min(30 * (2 ** min(error_count, 4)), 300))
 
-def background_poll(steps=None, sleep_fn=time.sleep):
+def background_poll(steps: list[Step] | None = None,
+                     sleep_fn: Callable[[float], None] = time.sleep) -> NoReturn:
     """Record service states and metrics to SQLite every 30s (real steps by default)."""
     if steps is None:
         steps = _default_steps()

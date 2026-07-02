@@ -1,5 +1,6 @@
 """Settings routes: airspy, receiver, per-band SDR, feeder list, feeder config."""
 import logging
+from typing import Any, cast
 
 from flask import Blueprint, jsonify, request
 
@@ -22,7 +23,7 @@ bp = Blueprint('settings', __name__)
 
 @bp.route('/api/settings/airspy', methods=['GET'])
 @admin_required
-def get_airspy():
+def get_airspy() -> Any:
     try:
         settings = parse_airspy_options(app.HOST.read_text(app.AIRSPY_DEFAULT) or '')
         model    = detect_airspy_model()
@@ -35,7 +36,7 @@ def get_airspy():
 
 @bp.route('/api/settings/airspy', methods=['POST'])
 @admin_required
-def set_airspy():
+def set_airspy() -> Any:
     try:
         write_airspy_options(request.get_json())
         ok, out = service_action('airspy_adsb', 'restart')
@@ -46,7 +47,7 @@ def set_airspy():
 
 @bp.route('/api/settings/receiver', methods=['GET'])
 @admin_required
-def get_receiver():
+def get_receiver() -> Any:
     try:
         return jsonify({'ok': True, 'settings': parse_receiver_options(app.HOST.read_text(app.READSB_DEFAULT) or '')})
     except Exception:
@@ -55,7 +56,7 @@ def get_receiver():
 
 @bp.route('/api/settings/receiver', methods=['POST'])
 @admin_required
-def set_receiver():
+def set_receiver() -> Any:
     try:
         text = app.HOST.read_text(app.READSB_DEFAULT) or ''
         app.HOST.write_text(app.READSB_DEFAULT, write_receiver_options(text, request.get_json()))
@@ -67,7 +68,7 @@ def set_receiver():
 
 @bp.route('/api/settings/sdr/<band>', methods=['GET'])
 @admin_required
-def get_sdr(band):
+def get_sdr(band: str) -> Any:
     try:
         if band == '1090': return jsonify({'ok': True, 'settings': parse_sdr1090()})
         if band == '978':  return jsonify({'ok': True, 'settings': parse_sdr978()})
@@ -78,7 +79,7 @@ def get_sdr(band):
 
 @bp.route('/api/settings/sdr/<band>', methods=['POST'])
 @admin_required
-def set_sdr(band):
+def set_sdr(band: str) -> Any:
     try:
         d = request.get_json() or {}
         gain = str(d.get('gain', 'auto')).strip()
@@ -98,12 +99,12 @@ def set_sdr(band):
 
 @bp.route('/api/settings/feeders', methods=['GET'])
 @admin_required
-def get_feeders():
+def get_feeders() -> Any:
     return jsonify({'ok': True, 'feeders': load_config()})
 
 @bp.route('/api/settings/feeders', methods=['POST'])
 @admin_required
-def set_feeders():
+def set_feeders() -> Any:
     try:
         save_feeders(request.get_json().get('feeders', []))
         return jsonify({'ok': True})
@@ -113,15 +114,15 @@ def set_feeders():
 
 @bp.route('/api/settings/feeder/<key>', methods=['GET'])
 @admin_required
-def get_feeder_cfg(key):
-    cfg = FEEDER_CONFIGS.get(key)
+def get_feeder_cfg(key: str) -> Any:
+    cfg = cast('dict[str, Any] | None', FEEDER_CONFIGS.get(key))
     if not cfg:
         return jsonify({'ok': False, 'error': 'No config defined for this feeder'})
     return jsonify({'ok': True, 'fields': cfg['fields'], 'settings': get_feeder_settings(key), 'label': cfg['label']})
 
 @bp.route('/api/settings/feeder/<key>', methods=['POST'])
 @admin_required
-def set_feeder_cfg(key):
+def set_feeder_cfg(key: str) -> Any:
     try:
         ok, msg = set_feeder_settings(key, request.get_json())
         if ok:

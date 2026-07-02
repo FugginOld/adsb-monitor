@@ -19,14 +19,17 @@ depends on this one for `_opt_in_receiver`, not the other way round.
 `HOST` and the `*_DEFAULT` config paths stay defined in app.py, reached via
 `import app`.
 """
+from __future__ import annotations
+
 import os
 import re
+from typing import Any
 
 import app
 from system.sdr_detect import detect_airspy_model
 
 
-def parse_airspy_options(text):
+def parse_airspy_options(text: str) -> dict[str, str]:
     s = {'gain': '21', 'sample_rate': '6', 'options': ''}
     for line in text.splitlines():
         line = line.strip()
@@ -38,7 +41,7 @@ def parse_airspy_options(text):
         elif k == 'OPTIONS': s['options'] = v
     return s
 
-def write_airspy_options(settings):
+def write_airspy_options(settings: dict[str, Any]) -> None:
     existing = app.HOST.read_text(app.AIRSPY_DEFAULT) or ''
     updates = {
         'GAIN':        settings.get('gain', '21'),
@@ -68,7 +71,7 @@ def write_airspy_options(settings):
             out.append(f'{key}={default}')
     app.HOST.write_text(app.AIRSPY_DEFAULT, '\n'.join(out) + '\n')
 
-def parse_receiver_options(text):
+def parse_receiver_options(text: str) -> dict[str, str]:
     s = {'lat': '', 'lon': '', 'max_range': '500'}
     for line in text.splitlines():
         if 'RECEIVER_OPTIONS' in line:
@@ -77,7 +80,7 @@ def parse_receiver_options(text):
                 if m: s[key] = m.group(1)
     return s
 
-def write_receiver_options(text, new_settings):
+def write_receiver_options(text: str, new_settings: dict[str, Any]) -> str:
     lines = text.splitlines()
     out = []
     for line in lines:
@@ -94,19 +97,19 @@ def write_receiver_options(text, new_settings):
 
 BIASTEE_1090_CONF = '/etc/systemd/system/readsb.service.d/biastee.conf'
 
-def _opt_in_receiver(text, flag):
+def _opt_in_receiver(text: str, flag: str) -> str | None:
     for line in text.splitlines():
         if 'RECEIVER_OPTIONS' in line:
             m = re.search(rf'{flag}[ =]([^\s"]+)', line)
-            if m: return m.group(1)
+            if m: return str(m.group(1))
     return None
 
-def parse_sdr1090():
+def parse_sdr1090() -> dict[str, Any]:
     text = app.HOST.read_text(app.READSB_DEFAULT) or ''
     return {'gain': _opt_in_receiver(text, '--gain') or 'auto',
             'biastee': os.path.exists(BIASTEE_1090_CONF)}
 
-def _set_receiver_flag(text, flag, value):
+def _set_receiver_flag(text: str, flag: str, value: str | None) -> str:
     """Set/replace `flag value` inside RECEIVER_OPTIONS="...". value None removes it."""
     out = []
     for line in text.splitlines():
@@ -117,7 +120,7 @@ def _set_receiver_flag(text, flag, value):
         out.append(line)
     return '\n'.join(out) + '\n'
 
-def write_sdr1090(gain, biastee):
+def write_sdr1090(gain: str | None, biastee: bool) -> None:
     text = app.HOST.read_text(app.READSB_DEFAULT) or ''
     app.HOST.write_text(app.READSB_DEFAULT, _set_receiver_flag(text, '--gain', gain or 'auto'))
     serial = _opt_in_receiver(text, '--device') or ''
@@ -133,17 +136,17 @@ def write_sdr1090(gain, biastee):
         app.HOST.run(['rm', '-f', BIASTEE_1090_CONF])
     app.HOST.run(['systemctl', 'daemon-reload'])
 
-def parse_sdr978():
+def parse_sdr978() -> dict[str, Any]:
     text = app.HOST.read_text(app.DUMP978_DEFAULT) or ''
     gain, biastee = 'max', False
     for line in text.splitlines():
         if 'RECEIVER_OPTIONS' in line:
             m = re.search(r'--sdr-gain[ =]([^\s"]+)', line)
-            if m: gain = m.group(1)
+            if m: gain = str(m.group(1))
             if 'biastee=true' in line: biastee = True
     return {'gain': gain, 'biastee': biastee}
 
-def write_sdr978(gain, biastee):
+def write_sdr978(gain: str | None, biastee: bool) -> None:
     text = app.HOST.read_text(app.DUMP978_DEFAULT) or ''
     out = []
     for line in text.splitlines():
@@ -157,7 +160,7 @@ def write_sdr978(gain, biastee):
         out.append(line)
     app.HOST.write_text(app.DUMP978_DEFAULT, '\n'.join(out) + '\n')
 
-def airspy_live_hint():
+def airspy_live_hint() -> str:
     try:
         settings = parse_airspy_options(app.HOST.read_text(app.AIRSPY_DEFAULT) or '')
         model = detect_airspy_model()

@@ -6,6 +6,7 @@ import re
 import shutil
 import zipfile
 from datetime import datetime
+from typing import Any
 
 from flask import Blueprint, jsonify, request, send_file
 
@@ -38,7 +39,7 @@ GRAPHS_RRD_DIR = '/var/lib/collectd/rrd'
 
 @bp.route('/api/backup')
 @admin_required
-def api_backup():
+def api_backup() -> Any:
     """Download a zip of all config files."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -54,7 +55,7 @@ def api_backup():
 
 @bp.route('/api/backup/graphs')
 @admin_required
-def api_backup_graphs():
+def api_backup_graphs() -> Any:
     """Download a zip of the collectd RRD graph history."""
     if not os.path.isdir(GRAPHS_RRD_DIR):
         return jsonify({'ok': False, 'error': 'no graph data found'}), 404
@@ -72,7 +73,7 @@ def api_backup_graphs():
 
 @bp.route('/api/restore', methods=['POST'])
 @admin_required
-def api_restore():
+def api_restore() -> Any:
     """Restore config files from an uploaded backup zip (whitelisted names only)."""
     f = request.files.get('file')
     if not f:
@@ -100,7 +101,7 @@ def api_restore():
         app.HOST.run(['systemctl', 'try-restart', svc])
     return jsonify({'ok': True, 'restored': restored})
 
-def _safe_path_under_base(base_dir, archive_name, require_rrd=False):
+def _safe_path_under_base(base_dir: str, archive_name: str, require_rrd: bool = False) -> tuple[str, ...] | None:
     """Return validated relative path parts for an archive entry, or None if invalid."""
     base_real = os.path.realpath(base_dir)
     entry = archive_name.replace('\\', '/')
@@ -132,7 +133,7 @@ def _safe_path_under_base(base_dir, archive_name, require_rrd=False):
 
 @bp.route('/api/restore/graphs', methods=['POST'])
 @admin_required
-def api_restore_graphs():
+def api_restore_graphs() -> Any:
     """Restore collectd RRD graph history from an uploaded zip. Stops collectd first."""
     f = request.files.get('file')
     if not f:

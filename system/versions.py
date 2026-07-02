@@ -11,14 +11,17 @@ module — routes that need to force a refresh call `invalidate_cache()`
 rather than reaching into `_version_ts` directly. `HOST` stays in app.py,
 reached via `import app`.
 """
+from __future__ import annotations
+
 import re
 import threading
 import time
 import urllib.request
+from typing import Any
 
 import app
 
-VERSION_SOURCES = {
+VERSION_SOURCES: dict[str, dict[str, Any]] = {
     'readsb': {
         'installed_cmd': ['readsb', '--version'],
         'installed_re':  r'readsb version:\s*([\d.]+)',
@@ -51,19 +54,19 @@ VERSION_SOURCES = {
     },
 }
 
-_version_cache = {}
+_version_cache: dict[str, Any] = {}
 _version_lock  = threading.Lock()
-_version_ts    = 0
+_version_ts: float = 0
 VERSION_TTL    = 3600
 
-def _fetch_url(url, timeout=5):
+def _fetch_url(url: str, timeout: int = 5) -> str | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
-            return r.read().decode('utf-8', errors='replace')
+            return bytes(r.read()).decode('utf-8', errors='replace')
     except Exception:
         return None
 
-def _get_installed_version(key, src):
+def _get_installed_version(key: str, src: dict[str, Any]) -> str | None:
     if 'installed_files' in src:
         for path in src['installed_files']:
             txt = app.HOST.read_text(path)
@@ -78,11 +81,11 @@ def _get_installed_version(key, src):
         text = (r.out + r.err).strip()
         if 'installed_re' in src:
             m = re.search(src['installed_re'], text, re.MULTILINE)
-            if m: return m.group(1).strip()
+            if m: return str(m.group(1)).strip()
         return text.split('\n')[0][:40] if text else None
     return None
 
-def _get_latest_version(key, src):
+def _get_latest_version(key: str, src: dict[str, Any]) -> str | None:
     url = src.get('latest_url')
     if not url: return None
     text = _fetch_url(url)
@@ -92,11 +95,11 @@ def _get_latest_version(key, src):
         return m.group(1) if m else None
     return text.strip().split('\n')[0][:40]
 
-def _is_outdated(installed, latest):
+def _is_outdated(installed: str | None, latest: str | None) -> bool:
     if not installed or not latest: return False
     return installed.strip() != latest.strip()
 
-def refresh_versions():
+def refresh_versions() -> None:
     global _version_ts
     result = {}
     for key, src in VERSION_SOURCES.items():
@@ -107,7 +110,7 @@ def refresh_versions():
         _version_cache.update(result)
         _version_ts = time.time()
 
-def get_versions():
+def get_versions() -> dict[str, Any]:
     global _version_ts
     if time.time() - _version_ts > VERSION_TTL:
         t = threading.Thread(target=refresh_versions, daemon=True)
@@ -116,7 +119,7 @@ def get_versions():
     with _version_lock:
         return dict(_version_cache)
 
-def invalidate_cache():
+def invalidate_cache() -> None:
     """Force the next get_versions() call to treat the cache as stale."""
     global _version_ts
     with _version_lock:

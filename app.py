@@ -14,15 +14,18 @@ DB init, and the background poller / server bootstrap.
 Two ports run the same app: an admin port (full access) and a read-only port
 (status/stats only). See `is_readonly` / `admin_required`.
 """
+from __future__ import annotations
+
 import os
 import threading
+from typing import Any, Callable
 from flask import Flask, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ProxyFix trusts one layer of X-Forwarded-* headers so links/IPs are correct
 # when the app sits behind a reverse proxy (nginx, Caddy, NPM).
 app = Flask(__name__, static_folder='static')
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
 # ── Paths & runtime config ───────────────────────────────────────────────────
 # Where things live on the host. feeders.ini and history.db sit next to this
@@ -32,7 +35,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # ─────────────────────────────────────────────────────────────────────────────
 
 APP_VERSION    = '1.0.0'  # bump alongside CHANGELOG.md
-CONFIG_FILE    = os.path.join(os.path.dirname(__file__), 'feeders.ini')
+CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
 READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
@@ -120,7 +123,7 @@ from routes import register_blueprints  # noqa: E402
 register_blueprints(app)
 
 @app.route('/')
-def index():
+def index() -> Any:
     return send_from_directory('static', 'index.html')
 
 # ── Server ─────────────────────────────────────────────────────────────────
@@ -130,13 +133,13 @@ def index():
 # version-refresh and background-poller daemon threads, then serves both ports.
 # ───────────────────────────────────────────────────────────────────────────
 
-def make_tagged_app(port):
-    def tagged_app(environ, start_response):
+def make_tagged_app(port: int) -> Callable[[dict[str, Any], Any], Any]:
+    def tagged_app(environ: dict[str, Any], start_response: Any) -> Any:
         _request_port.port = port
         return app(environ, start_response)
     return tagged_app
 
-def run_server(port):
+def run_server(port: int) -> None:
     from werkzeug.serving import ThreadedWSGIServer
     server = ThreadedWSGIServer('0.0.0.0', port, make_tagged_app(port))
     server.serve_forever()

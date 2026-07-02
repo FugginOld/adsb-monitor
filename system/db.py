@@ -24,14 +24,17 @@ strings (the last two read live from the init system, not the DB).
 `DB_FILE` and `INIT` stay defined in app.py (conftest.py monkeypatches them
 by reassignment), so this module reaches them via `import app`.
 """
+from __future__ import annotations
+
 import sqlite3
 import time
 from datetime import datetime
+from typing import Any, Iterable
 
 import app
 
 
-def fold_uptime(rows, start, end):
+def fold_uptime(rows: Iterable[tuple[float, str]], start: float, end: float) -> float | None:
     """Fraction (0-100) of [start, end] a service was 'ok', from (ts, status) rows.
 
     Rows may include one pre-window event (ts < start) that seeds the starting status.
@@ -51,7 +54,7 @@ def fold_uptime(rows, start, end):
     span = end - start
     return round(min(100, up / span * 100), 1) if span > 0 else None
 
-def _query_events(service, start, end):
+def _query_events(service: str, start: float, end: float) -> list[tuple[float, str]]:
     """All (ts, status) events for a service in [start, end], oldest first,
     prefixed with the last event before `start` so fold_uptime can seed the
     window's starting status. Without this seed, a continuously-up service
@@ -68,7 +71,7 @@ def _query_events(service, start, end):
     conn.close()
     return ([seed] + rows) if seed else rows
 
-def init_db():
+def init_db() -> None:
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS service_events (
@@ -90,7 +93,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-def record_service_event(service, status):
+def record_service_event(service: str, status: str) -> None:
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
     # Only record if status changed
@@ -104,7 +107,7 @@ def record_service_event(service, status):
         conn.commit()
     conn.close()
 
-def record_metrics(aircraft, msg_rate, max_range_nm):
+def record_metrics(aircraft: int, msg_rate: int, max_range_nm: int) -> None:
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
     c.execute('INSERT INTO metrics (ts, aircraft, msg_rate, max_range_nm) VALUES (?,?,?,?)',
@@ -114,7 +117,7 @@ def record_metrics(aircraft, msg_rate, max_range_nm):
     conn.commit()
     conn.close()
 
-def _daily_uptime(service, days=7):
+def _daily_uptime(service: str, days: int = 7) -> list[dict[str, Any]]:
     """Per-day uptime as {'day': 'MM/DD', 'pct': float}, oldest first."""
     now = time.time()
     out = []
@@ -125,12 +128,12 @@ def _daily_uptime(service, days=7):
         out.append({'day': datetime.fromtimestamp(day_start + 43200).strftime('%m/%d'), 'pct': pct})
     return out
 
-def get_uptime_bars(service, days=7):
+def get_uptime_bars(service: str, days: int = 7) -> list[float | None]:
     """Daily uptime pct for compact bar display (oldest first)."""
     return [d['pct'] for d in _daily_uptime(service, days)]
 
 
-def get_service_uptime_pct(service, days=7):
+def get_service_uptime_pct(service: str, days: int = 7) -> float | None:
     now = time.time()
     since = now - days * 86400
     rows = _query_events(service, since, now)
@@ -138,7 +141,7 @@ def get_service_uptime_pct(service, days=7):
         return None
     return fold_uptime(rows, since, now)
 
-def get_metrics_history(minutes=60):
+def get_metrics_history(minutes: int = 60) -> list[dict[str, Any]]:
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
     since = time.time() - minutes * 60
@@ -147,14 +150,14 @@ def get_metrics_history(minutes=60):
     conn.close()
     return [{'ts': r[0], 'aircraft': r[1], 'msg_rate': r[2]} for r in rows]
 
-def get_service_uptime_str(service):
+def get_service_uptime_str(service: str) -> str | None:
     """Get how long a service has been running (delegates to INIT)."""
     try:
         return app.INIT.running_since(service)
     except Exception:
         return None
 
-def get_docker_uptime_str(container):
+def get_docker_uptime_str(container: str) -> str | None:
     try:
         r = app.HOST.run(['docker', 'inspect', '--format', '{{.State.StartedAt}}', container], timeout=5)
         ts_str = r.out.strip()

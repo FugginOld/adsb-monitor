@@ -62,3 +62,15 @@ For the physical module/route layout (which file each of these lives in), see
   start, end)` centralises the `service_events` SELECT. The write side (`record_service_event`,
   `record_metrics`, pruning) is separate. The pure fold is unit-testable with fixture
   row-lists — no database.
+
+## Style / tooling stance
+
+- **No formatter.** `ruff.toml` scopes lint to `E`/`F` and deliberately ignores E501/E701/
+  E702/E741/E401 — the compact one-liner style is intentional, not drift. `ruff format`
+  fights that style (thousands of lines un-collapsing one-liners on a diff check), so it's
+  not adopted. `ruff check` is the only enforced gate. Don't "fix" the compact style.
+- **Typing is incremental.** `mypy.ini` is lenient by default; a module gets a
+  `[mypy-X]` strict override only once it's been hand-typed. Every module in
+  `app.py`/`system/*.py`/`routes/*.py` is now typed and listed. New files
+  start untyped (covered by the lenient default) until someone adds their override —
+  don't switch the global default to strict.

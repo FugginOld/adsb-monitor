@@ -1,4 +1,6 @@
 """Dashboard routes: alerts, port mode, UI config, feeder status."""
+from typing import Any
+
 from flask import Blueprint, jsonify
 
 import app
@@ -13,7 +15,7 @@ bp = Blueprint('dashboard', __name__)
 
 
 @bp.route('/api/alerts')
-def api_alerts():
+def api_alerts() -> Any:
     """Return any services currently down."""
     feeders = load_config()
     alerts = []
@@ -25,11 +27,11 @@ def api_alerts():
 
 
 @bp.route('/api/mode')
-def api_mode():
+def api_mode() -> Any:
     return jsonify({'readonly': is_readonly(), 'version': app.APP_VERSION})
 
 @bp.route('/api/ui-config')
-def api_ui_config():
+def api_ui_config() -> Any:
     if is_readonly():
         base = app.GRAPHS1090_URL_REMOTE
         return jsonify({
@@ -45,10 +47,10 @@ def api_ui_config():
     })
 
 @bp.route('/api/status')
-def api_status():
+def api_status() -> Any:
     feeders  = load_config()
     versions = get_versions()
-    results  = []
+    results: list[dict[str, Any]] = []
     for f in feeders:
         health = probe(f)
         ver    = versions.get(f['key'], {})

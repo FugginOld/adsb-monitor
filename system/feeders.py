@@ -14,9 +14,12 @@ lives here once. See CONTEXT.md.
 
 `HOST` / `READSB_JSON` stay defined in app.py, reached via `import app`.
 """
+from __future__ import annotations
+
 import os
 import re
 import time
+from typing import Any, Callable, TypeVar, cast
 
 import app
 from system.db import get_service_uptime_str, get_docker_uptime_str
@@ -27,7 +30,18 @@ FEEDER_STATUS_FILES = {
     'adsbfi-feed':       '/run/adsbfi-feed/status.json',
 }
 
-def get_feeder_last_seen(key):
+T = TypeVar('T')
+
+def format_last_seen(age: float) -> str:
+    """age seconds -> 'live' / 'Xm ago' / 'Xh ago'."""
+    if age < 120:
+        return 'live'
+    elif age < 3600:
+        return f'{int(age//60)}m ago'
+    else:
+        return f'{int(age//3600)}h ago'
+
+def get_feeder_last_seen(key: str) -> str | None:
     path = FEEDER_STATUS_FILES.get(key)
     if not path:
         return None
@@ -36,25 +50,17 @@ def get_feeder_last_seen(key):
         return None
     now_ts = data.get('now', 0)
     if now_ts:
-        age = time.time() - now_ts
-        if age < 120:
-            return 'live'
-        elif age < 3600:
-            return f'{int(age//60)}m ago'
-        else:
-            return f'{int(age//3600)}h ago'
+        return format_last_seen(time.time() - now_ts)
     return None
 
-def get_fr24_last_seen():
+def get_fr24_last_seen() -> str | None:
     r = app.HOST.run(['fr24feed-status'], timeout=5)
     m = re.search(r'connected.*?(\d+)\s*s', r.out + r.err, re.I)
     if m:
-        age = int(m.group(1))
-        if age < 120: return 'live'
-        return f'{age//60}m ago'
+        return format_last_seen(int(m.group(1)))
     return None
 
-def get_piaware_last_seen():
+def get_piaware_last_seen() -> str | None:
     r = app.HOST.run(['piaware-status'], timeout=5)
     if not r.out and not r.err:
         return None
@@ -64,21 +70,24 @@ def get_piaware_last_seen():
 
 class FeederHealth:
     __slots__ = ('status', 'detail', 'last_seen', 'running_for')
-    def __init__(self, status, detail, last_seen=None, running_for=None):
+    def __init__(self, status: str, detail: str, last_seen: str | None = None,
+                 running_for: str | None = None):
         self.status, self.detail = status, detail
         self.last_seen, self.running_for = last_seen, running_for
 
-def _dispatch_by_kind(feeder, if_service, if_docker):
+def _dispatch_by_kind(feeder: dict[str, Any], if_service: Callable[[], T], if_docker: Callable[[], T]) -> T:
     """The one place a Feeder's kind decides which resolver runs."""
     return if_service() if feeder['kind'] == 'service' else if_docker()
 
-def feeder_status(feeder):
+def feeder_status(feeder: dict[str, Any]) -> tuple[str, str]:
     """The single kind-dispatch: (status, detail) for a service or docker Feeder."""
-    return _dispatch_by_kind(feeder,
-        lambda: app.INIT.status(feeder['key']),
-        lambda: docker_status(feeder['key']))
+    def via_service() -> tuple[str, str]:
+        return cast('tuple[str, str]', app.INIT.status(feeder['key']))
+    def via_docker() -> tuple[str, str]:
+        return docker_status(feeder['key'])
+    return _dispatch_by_kind(feeder, via_service, via_docker)
 
-def _feeder_last_seen(key):
+def _feeder_last_seen(key: str) -> str | None:
     if key in FEEDER_STATUS_FILES:
         return get_feeder_last_seen(key)
     if key == 'fr24feed':
@@ -87,19 +96,19 @@ def _feeder_last_seen(key):
         return get_piaware_last_seen()
     return None
 
-def _feeder_running_for(feeder):
+def _feeder_running_for(feeder: dict[str, Any]) -> str | None:
     return _dispatch_by_kind(feeder,
         lambda: get_service_uptime_str(feeder['key']),
         lambda: get_docker_uptime_str(feeder['key']))
 
-def probe(feeder):
+def probe(feeder: dict[str, Any]) -> FeederHealth:
     """Compose full Feeder health from the status, last-seen and running-for resolvers."""
     status, detail = feeder_status(feeder)
     return FeederHealth(status, detail,
                         last_seen=_feeder_last_seen(feeder['key']),
                         running_for=_feeder_running_for(feeder))
 
-def readsb_metrics():
+def readsb_metrics() -> dict[str, int]:
     metrics = {'aircraft': 0, 'msg_rate': 0, 'max_range_nm': 0}
     ac_data = app.HOST.read_json(os.path.join(app.READSB_JSON, 'aircraft.json'))
     if ac_data:

@@ -24,11 +24,14 @@ Settings.
 
 `HOST` and `CONFIG_FILE` stay defined in app.py, reached via `import app`.
 """
+from __future__ import annotations
+
 import configparser
 import io
 import json
 import logging
 from collections import namedtuple
+from typing import Any, cast
 
 import app
 
@@ -42,7 +45,7 @@ logger = logging.getLogger(__name__)
 # expected, not a bug: routes/settings.py's get_feeder_cfg checks
 # FEEDER_CONFIGS.get(key) first and returns a clear "No config defined for
 # this feeder" instead of ever falling through to a missing schema.
-FEEDER_CONFIGS = {
+FEEDER_CONFIGS: dict[str, dict[str, Any]] = {
     'fr24feed': {
         'label': 'FlightRadar24',
         'config_file': '/etc/fr24feed.ini',
@@ -100,7 +103,7 @@ FEEDER_CONFIGS = {
     },
 }
 
-def read_flat_ini(path):
+def read_flat_ini(path: str) -> dict[str, str]:
     vals = {}
     for line in (app.HOST.read_text(path) or '').splitlines():
         line = line.strip()
@@ -110,10 +113,10 @@ def read_flat_ini(path):
             vals[k.strip()] = v.strip().strip('"').strip("'")
     return vals
 
-def write_flat_ini(path, data):
+def write_flat_ini(path: str, data: dict[str, Any]) -> None:
     app.HOST.write_text(path, ''.join(f'{k}={v}\n' for k, v in data.items()))
 
-def read_shell_vars(path):
+def read_shell_vars(path: str) -> dict[str, str]:
     vals = {}
     for line in (app.HOST.read_text(path) or '').splitlines():
         line = line.strip().lstrip('export').strip()
@@ -123,7 +126,7 @@ def read_shell_vars(path):
             vals[k.strip()] = v.strip().strip('"').strip("'")
     return vals
 
-def write_shell_vars(path, data):
+def write_shell_vars(path: str, data: dict[str, Any]) -> None:
     existing = app.HOST.read_text(path) or ''
     lines = existing.splitlines()
     updated = set()
@@ -142,7 +145,7 @@ def write_shell_vars(path, data):
             out.append(f'{k}="{v}"')
     app.HOST.write_text(path, '\n'.join(out) + '\n')
 
-def read_piaware_config(fields):
+def read_piaware_config(fields: list[Any]) -> dict[str, str]:
     vals = {}
     r = app.HOST.run(['piaware-config', '--show'], timeout=5)
     for line in r.out.splitlines():
@@ -151,7 +154,7 @@ def read_piaware_config(fields):
             vals[k.strip()] = v.strip().split()[0]
     return vals
 
-def read_docker_env(container):
+def read_docker_env(container: str) -> dict[str, str]:
     vals = {}
     r = app.HOST.run(
         ['docker', 'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', container],
@@ -164,27 +167,27 @@ def read_docker_env(container):
 
 Adapter = namedtuple('Adapter', ['read', 'write'])
 
-def _writable_only(cfg, data):
+def _writable_only(cfg: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
     """Drop readonly fields — file formats filter, docker/piaware historically don't."""
     writable = {f['key'] for f in cfg.get('fields', []) if not f.get('readonly')}
     return {k: v for k, v in data.items() if k in writable}
 
-def _write_ini_flat(cfg, data):
+def _write_ini_flat(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
     existing = read_flat_ini(cfg['config_file'])
     existing.update(_writable_only(cfg, data))
     write_flat_ini(cfg['config_file'], existing)
     return True, 'Saved'
 
-def _write_shell_vars(cfg, data):
+def _write_shell_vars(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
     write_shell_vars(cfg['config_file'], _writable_only(cfg, data))
     return True, 'Saved'
 
-def _write_piaware(cfg, data):
+def _write_piaware(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
     for k, v in data.items():
         if v: app.HOST.run(['piaware-config', k, v], timeout=5)
     return True, 'Saved'
 
-def _write_docker(cfg, data):
+def _write_docker(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
     container = cfg['docker_container']
     current = read_docker_env(container)
     current.update({k: v for k, v in data.items() if v != ''})
@@ -218,7 +221,7 @@ CONFIG_ADAPTERS = {
     'docker':     Adapter(lambda cfg: read_docker_env(cfg['docker_container']),  _write_docker),
 }
 
-def _config_adapter(cfg):
+def _config_adapter(cfg: dict[str, Any]) -> Adapter | None:
     """Select the format adapter once — used by both get and set."""
     if 'docker_container' in cfg:
         return CONFIG_ADAPTERS['docker']
@@ -228,7 +231,7 @@ def _config_adapter(cfg):
         return CONFIG_ADAPTERS['piaware']
     return None
 
-def get_feeder_settings(key):
+def get_feeder_settings(key: str) -> dict[str, Any]:
     cfg = FEEDER_CONFIGS.get(key)
     if not cfg: return {}
     adapter = _config_adapter(cfg)
@@ -237,19 +240,19 @@ def get_feeder_settings(key):
         vals[fname] = (app.HOST.read_text(fpath) or '').strip()
     return {field['key']: vals.get(field['key'], field.get('default', '')) for field in cfg.get('fields', [])}
 
-def set_feeder_settings(key, data):
+def set_feeder_settings(key: str, data: dict[str, Any]) -> tuple[bool, str]:
     cfg = FEEDER_CONFIGS.get(key)
     if not cfg: return False, 'Unknown feeder'
     adapter = _config_adapter(cfg)
     if not adapter:
         return False, 'No write method defined'
     try:
-        return adapter.write(cfg, data)
+        return cast('tuple[bool, str]', adapter.write(cfg, data))
     except Exception:
         logger.exception("Failed to write feeder settings for key=%s", key)
         return False, 'Failed to update feeder settings'
 
-def load_config():
+def load_config() -> list[dict[str, Any]]:
     cfg = configparser.ConfigParser()
     cfg.read(app.CONFIG_FILE)
     items = []
@@ -265,10 +268,10 @@ def load_config():
         })
     return items
 
-def get_config_map():
+def get_config_map() -> dict[str, dict[str, Any]]:
     return {f['key']: f for f in load_config()}
 
-def save_feeders(feeders):
+def save_feeders(feeders: list[dict[str, Any]]) -> None:
     cfg = configparser.ConfigParser()
     for f in feeders:
         section = f'{f["kind"]}:{f["key"]}'

@@ -22,19 +22,22 @@ RSSI but no SNR/noise.
 `HOST` and the `*_DEFAULT`/`*_JSON` config paths stay defined in app.py,
 reached via `import app`.
 """
+from __future__ import annotations
+
 import os
 
 import psutil
 import shutil
+from typing import Any
 
 import app
 from system.services import systemd_status
 
 
-def get_airspy_stats():
+def get_airspy_stats() -> dict[str, Any]:
     return app.HOST.read_json(app.AIRSPY_STATS) or {}
 
-def gain_recommendation(stats):
+def gain_recommendation(stats: dict[str, Any]) -> dict[str, str] | None:
     """Analyze airspy stats and suggest gain adjustment."""
     if not stats:
         return None
@@ -62,8 +65,8 @@ def gain_recommendation(stats):
     else:
         return {'action': 'ok', 'reason': f'Signal levels look good (SNR {median_snr:.1f} dB, noise {median_noise:.0f} dB)'}
 
-def get_system_metrics():
-    metrics = {}
+def get_system_metrics() -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
     try:
         metrics['cpu_pct']  = psutil.cpu_percent(interval=0.5)
         metrics['mem_pct']  = psutil.virtual_memory().percent
@@ -82,7 +85,7 @@ def get_system_metrics():
         metrics['error'] = str(e)
     return metrics
 
-def get_readsb_deep_stats():
+def get_readsb_deep_stats() -> dict[str, Any]:
     try:
         stats = app.HOST.read_json(os.path.join(app.READSB_JSON, 'stats.json'))
         if not stats:
@@ -105,23 +108,23 @@ def get_readsb_deep_stats():
 
 # Cumulative UAT message count from the last poll, to derive a per-second rate.
 # ponytail: single-value cache, fine for one monitor process; no locking needed.
-_uat_msg_cache = {'msgs': None, 'now': None}
+_uat_msg_cache: dict[str, Any] = {'msgs': None, 'now': None}
 
-def _uat_msg_rate(msgs, now):
+def _uat_msg_rate(msgs: Any, now: Any) -> int | None:
     if msgs is None or now is None:
         return None
     prev_m, prev_t = _uat_msg_cache['msgs'], _uat_msg_cache['now']
     _uat_msg_cache['msgs'], _uat_msg_cache['now'] = msgs, now
     if prev_m is None or prev_t is None or now <= prev_t:
         return None
-    return round((msgs - prev_m) / (now - prev_t))
+    return int(round((msgs - prev_m) / (now - prev_t)))
 
-def get_band_stats():
+def get_band_stats() -> dict[str, Any]:
     # has_rtl1090: readsb is driving an RTL dongle, not just aggregating an Airspy
     # feed (the Airspy path runs readsb with --net-only and has no local SDR/signal).
     readsb_text = app.HOST.read_text(app.READSB_DEFAULT) or ''
     has_rtl1090 = '--device-type rtlsdr' in readsb_text
-    out = {
+    out: dict[str, Any] = {
         'has_airspy':  os.path.exists(app.AIRSPY_DEFAULT),
         'has_rtl1090': has_rtl1090,
         'has_978':     os.path.exists(app.DUMP978_DEFAULT),

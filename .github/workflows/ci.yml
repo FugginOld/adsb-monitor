@@ -55,3 +55,17 @@ jobs:
       # Lint config (select/ignore) lives in ruff.toml so local `ruff check`
       # matches CI exactly. Scoped to pyflakes + real pycodestyle errors.
       - run: ruff check .
+
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install mypy flask psutil types-psutil
+      # mypy.ini is lenient by default; only modules with a [mypy-system.X]
+      # override are strict-checked. Add a module there as it gets typed —
+      # untyped modules stay silent.
+      - run: mypy .

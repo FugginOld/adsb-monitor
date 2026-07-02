@@ -1,5 +1,6 @@
 """Stats routes: airspy/readsb/band/aircraft-type/system stats, metrics history, uptime."""
 import os
+from typing import Any
 
 from flask import Blueprint, jsonify, request
 
@@ -15,7 +16,7 @@ bp = Blueprint('stats', __name__)
 
 
 @bp.route('/api/stats/airspy')
-def api_airspy_stats():
+def api_airspy_stats() -> Any:
     stats = get_airspy_stats()
     return jsonify({
         'stats': stats,
@@ -23,15 +24,15 @@ def api_airspy_stats():
     })
 
 @bp.route('/api/stats/readsb')
-def api_readsb_stats():
+def api_readsb_stats() -> Any:
     return jsonify(get_readsb_deep_stats())
 
 @bp.route('/api/stats/bands')
-def api_band_stats():
+def api_band_stats() -> Any:
     return jsonify(get_band_stats())
 
 @bp.route('/api/stats/aircraft_types')
-def api_aircraft_types():
+def api_aircraft_types() -> Any:
     """Return aircraft type breakdown from readsb stats."""
     try:
         stats = app.HOST.read_json(os.path.join(app.READSB_JSON, 'stats.json')) or {}
@@ -51,22 +52,22 @@ def api_aircraft_types():
 
 
 @bp.route('/api/stats/system')
-def api_system_stats():
+def api_system_stats() -> Any:
     return jsonify(get_system_metrics())
 
 @bp.route('/api/stats/history')
-def api_history():
+def api_history() -> Any:
     minutes = int(request.args.get('minutes', 60))
     return jsonify(get_metrics_history(minutes))
 
 @bp.route('/api/stats/uptime/history')
-def api_uptime_history():
+def api_uptime_history() -> Any:
     """Return 7-day daily uptime % for all services."""
     return jsonify({f['key']: _daily_uptime(f['key']) for f in load_config()})
 
 
 @bp.route('/api/stats/uptime/<service>')
-def api_service_uptime(service):
+def api_service_uptime(service: str) -> Any:
     days = int(request.args.get('days', 7))
     pct  = get_service_uptime_pct(service, days)
     return jsonify({'service': service, 'uptime_pct': pct, 'days': days})

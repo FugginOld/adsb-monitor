@@ -10,7 +10,7 @@ bp = Blueprint('logs', __name__)
 
 @bp.route('/api/logs/<key>')
 @admin_required
-def api_logs(key):
+def api_logs(key: str) -> Response:
     cfg = get_config_map()
     if key not in cfg:
         return Response('data: {"error": "unknown service"}\n\n', status=404, mimetype='text/event-stream')
@@ -21,7 +21,7 @@ def api_logs(key):
 
 @bp.route('/api/syslog')
 @admin_required
-def api_syslog():
+def api_syslog() -> Response:
     """Stream the whole-system journal (all units) for the Settings log window."""
     gen = stream_logs(_journalctl())
     return Response(stream_with_context(gen), mimetype='text/event-stream',

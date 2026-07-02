@@ -4,17 +4,19 @@ container feeders).
 
 `HOST` and `INIT` stay defined in app.py, reached via `import app`.
 """
+from __future__ import annotations
+
 import app
 
 
-def systemd_status(service):
+def systemd_status(service: str) -> tuple[str, str]:
     return app.INIT.status(service)
 
-def docker_status(container):
+def docker_status(container: str) -> tuple[str, str]:
     r = app.HOST.run(['docker', 'inspect', '--format', '{{.State.Status}}', container], timeout=5)
     state = r.out.strip()
     if not state: return 'error', 'not found'
     return ('ok' if state == 'running' else 'error'), state
 
-def service_action(service, action):
+def service_action(service: str, action: str) -> tuple[bool, str]:
     return app.INIT.action(service, action)

@@ -13,8 +13,11 @@ actually present) — not the other way round.
 `HOST` and the `*_DEFAULT` config paths stay defined in app.py, reached via
 `import app`.
 """
+from __future__ import annotations
+
 import logging
 import re
+from typing import Callable, cast
 
 import app
 from system.sdr_detect import detect_airspy_model
@@ -25,19 +28,19 @@ logger = logging.getLogger(__name__)
 
 # Services we stopped for a missing stick — only these are eligible for auto-resume.
 # ponytail: in-memory set, fine for one monitor process; resets on restart (re-derived next poll).
-_sdr_autostopped = set()
+_sdr_autostopped: set[str] = set()
 
-def _sdr1090_serial():
+def _sdr1090_serial() -> str | None:
     text = app.HOST.read_text(app.READSB_DEFAULT) or ''
     if '--device-type rtlsdr' not in text:
         return None  # Airspy / net-only — no local 1090 stick
-    return _opt_in_receiver(text, '--device')
+    return cast('str | None', _opt_in_receiver(text, '--device'))
 
-def _sdr978_serial():
+def _sdr978_serial() -> str | None:
     m = re.search(r'--sdr\s+driver=rtlsdr,serial=([^\s",]+)', app.HOST.read_text(app.DUMP978_DEFAULT) or '')
-    return m.group(1) if m else None
+    return str(m.group(1)) if m else None
 
-def _rtl_present(serial):
+def _rtl_present(serial: str | None) -> bool | None:
     """True/False if an RTL stick with `serial` is on USB; None if no serial to match.
 
     Reads the USB serial straight from sysfs — no rtlsdr_open(), so it never
@@ -51,13 +54,13 @@ def _rtl_present(serial):
     r = app.HOST.run(['/bin/sh', '-c', 'cat /sys/bus/usb/devices/*/serial 2>/dev/null'], timeout=5)
     return serial in r.out.split()
 
-def _airspy_present():
+def _airspy_present() -> bool | None:
     """True/False if an Airspy is on USB; None if this host has no Airspy decoder."""
     if app.HOST.read_text(app.AIRSPY_DEFAULT) is None:
         return None
     return detect_airspy_model() != 'unknown'
 
-def _enforce_sdr(service, present_fn):
+def _enforce_sdr(service: str, present_fn: Callable[[], bool | None]) -> None:
     """Stop `service` when its SDR is gone; resume the one we stopped when it returns.
 
     present_fn() -> True/False/None (None = not applicable on this host, skip).
@@ -82,7 +85,7 @@ def _enforce_sdr(service, present_fn):
         _sdr_autostopped.discard(service)
         logger.info("SDR back — started %s", service)
 
-def enforce_sdr_presence():
+def enforce_sdr_presence() -> None:
     _enforce_sdr('readsb',      lambda: _rtl_present(_sdr1090_serial()))
     _enforce_sdr('dump978-fa',  lambda: _rtl_present(_sdr978_serial()))
     _enforce_sdr('airspy_adsb', _airspy_present)
