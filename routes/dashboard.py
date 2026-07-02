@@ -26,7 +26,7 @@ def api_alerts():
 
 @bp.route('/api/mode')
 def api_mode():
-    return jsonify({'readonly': is_readonly()})
+    return jsonify({'readonly': is_readonly(), 'version': app.APP_VERSION})
 
 @bp.route('/api/ui-config')
 def api_ui_config():

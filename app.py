@@ -31,6 +31,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # at install time) and fall back to sane defaults when unset.
 # ─────────────────────────────────────────────────────────────────────────────
 
+APP_VERSION    = '1.0.0'  # bump alongside CHANGELOG.md
 CONFIG_FILE    = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
 READSB_JSON    = '/run/readsb'

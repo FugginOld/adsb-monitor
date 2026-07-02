@@ -58,6 +58,7 @@
   .sidebar-header { display: flex; align-items: center; justify-content: space-between; }
   .sidebar-header h1 { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
   .sidebar-header h1 i { color: var(--text2); font-size: 15px; }
+  .version-tag { font-size: 10px; font-weight: 400; color: var(--text2); }
   .header-actions { display: flex; gap: 6px; align-items: center; }
   .icon-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; border: 0.5px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer; font-size: 14px; }
   .icon-btn:hover { background: var(--surface2); }
@@ -312,7 +313,7 @@
 <!-- Sidebar -->
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
-    <h1><i class="ti ti-radar"></i> ADS-B monitor</h1>
+    <h1><i class="ti ti-radar"></i> ADS-B monitor <span id="app-version" class="version-tag"></span></h1>
     <div class="header-actions">
       <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme"><i class="ti ti-sun-moon"></i></button>
       <button class="icon-btn" onclick="load()"><i class="ti ti-refresh" id="ri"></i></button>
@@ -1346,7 +1347,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 let TAR1090_URL='',GRAPHS1090_URL='',GRAPHS1090_AIRSPY='',IS_READONLY=false;
 
 async function init(){
-  try{const m=await fetch('/api/mode').then(r=>r.json());IS_READONLY=m.readonly;if(IS_READONLY)document.getElementById('btn-settings').style.display='none';}catch{}
+  try{const m=await fetch('/api/mode').then(r=>r.json());IS_READONLY=m.readonly;if(IS_READONLY)document.getElementById('btn-settings').style.display='none';if(m.version)document.getElementById('app-version').textContent='v'+m.version;}catch{}
   try{const cfg=await fetch('/api/ui-config').then(r=>r.json());TAR1090_URL=cfg.tar1090_url||`http://${location.hostname}:8504`;GRAPHS1090_URL=cfg.graphs1090_url||`http://${location.hostname}/graphs1090`;GRAPHS1090_AIRSPY=cfg.graphs1090_airspy||GRAPHS1090_URL;}
   catch{TAR1090_URL=`http://${location.hostname}:8504`;GRAPHS1090_URL=`http://${location.hostname}/graphs1090`;}
   document.getElementById('map-frame').src=TAR1090_URL;
