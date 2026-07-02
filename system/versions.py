@@ -6,10 +6,10 @@ the installed version locally and where to fetch the latest. Results are
 cached for VERSION_TTL seconds so the dashboard isn't hammering GitHub on
 every refresh.
 
-`_version_cache` / `_version_lock` / `_version_ts` are self-contained here
-(nothing outside this module reassigns them — routes that trigger a refresh
-do so through this module's own name, e.g. `system.versions._version_ts`,
-not a copy). `HOST` stays in app.py, reached via `import app`.
+`_version_cache` / `_version_lock` / `_version_ts` are private to this
+module — routes that need to force a refresh call `invalidate_cache()`
+rather than reaching into `_version_ts` directly. `HOST` stays in app.py,
+reached via `import app`.
 """
 import re
 import threading
@@ -115,3 +115,9 @@ def get_versions():
         # Never block — return cache immediately (may be empty on first call)
     with _version_lock:
         return dict(_version_cache)
+
+def invalidate_cache():
+    """Force the next get_versions() call to treat the cache as stale."""
+    global _version_ts
+    with _version_lock:
+        _version_ts = 0

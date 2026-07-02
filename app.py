@@ -72,84 +72,40 @@ _request_port = threading.local()
 
 from system.auth import is_readonly, admin_required  # noqa: E402
 
-# ── Uptime ledger + SQLite history ─────────────────────────────────────────
-# Moved to system/db.py (fold_uptime, _query_events, init_db,
-# record_service_event, record_metrics, _daily_uptime, get_uptime_bars,
-# get_service_uptime_pct, get_metrics_history, get_service_uptime_str,
-# get_docker_uptime_str). Reaches DB_FILE/INIT/HOST via `import app`.
+# ── Re-exports from system/*.py ─────────────────────────────────────────────
+# Every name below moved into system/*.py during the route-module-split
+# (route-module-split.md). What's imported here is only what's still
+# referenced by `appmod.X` in tests/*.py or by run.py/app.py's own code —
+# NOT the full contents of each module (see ARCHITECTURE.md for that). Names
+# routes/*.py needs are imported directly from system/*.py, not through here.
+# Reaches HOST/INIT/DB_FILE/CONFIG_FILE/*_DEFAULT/*_JSON via `import app`.
 # ───────────────────────────────────────────────────────────────────────────
 from system.db import (  # noqa: E402
     fold_uptime, _query_events, init_db, record_service_event, record_metrics,
     _daily_uptime, get_uptime_bars, get_service_uptime_pct, get_metrics_history,
     get_service_uptime_str, get_docker_uptime_str,
 )
-
-# ── Feeder last-seen ───────────────────────────────────────────────────────
-# Moved to system/feeders.py (FEEDER_STATUS_FILES, get_feeder_last_seen,
-# get_fr24_last_seen, get_piaware_last_seen). Reaches HOST via `import app`.
-# ───────────────────────────────────────────────────────────────────────────
 from system.feeders import (  # noqa: E402
     FEEDER_STATUS_FILES, get_feeder_last_seen, get_fr24_last_seen, get_piaware_last_seen,
-    FeederHealth, feeder_status, _feeder_last_seen, _feeder_running_for, probe, readsb_metrics,
+    feeder_status, probe, readsb_metrics,
 )
-
-# ── Stats + version checking ───────────────────────────────────────────────
-# Moved to system/stats.py (get_airspy_stats, gain_recommendation,
-# get_system_metrics, get_readsb_deep_stats, _uat_msg_cache, _uat_msg_rate,
-# get_band_stats) and system/versions.py (VERSION_SOURCES, _fetch_url,
-# _get_installed_version, _get_latest_version, _is_outdated,
-# refresh_versions, get_versions). Reach HOST/*_DEFAULT/*_JSON via `import app`.
-# ───────────────────────────────────────────────────────────────────────────
 from system.stats import (  # noqa: E402
     get_airspy_stats, gain_recommendation, get_system_metrics, get_readsb_deep_stats,
     _uat_msg_cache, _uat_msg_rate, get_band_stats,
 )
-import system.versions as _versions_mod  # noqa: E402
 from system.versions import (  # noqa: E402
     VERSION_SOURCES, _fetch_url, _get_installed_version, _get_latest_version, _is_outdated,
     refresh_versions, get_versions,
 )
-
-# ── Feeder configs + config store ─────────────────────────────────────────
-# Moved to system/config_io.py (FEEDER_CONFIGS, read_*/write_* adapters,
-# CONFIG_ADAPTERS, _config_adapter, get_/set_feeder_settings, load_config,
-# get_config_map, save_feeders). Reaches HOST/CONFIG_FILE via `import app`.
-# ───────────────────────────────────────────────────────────────────────────
 from system.config_io import (  # noqa: E402
     FEEDER_CONFIGS, read_flat_ini, write_flat_ini, read_shell_vars, write_shell_vars,
-    read_piaware_config, read_docker_env, Adapter, _writable_only, _write_ini_flat,
-    _write_shell_vars, _write_piaware, _write_docker, CONFIG_ADAPTERS, _config_adapter,
+    read_piaware_config, read_docker_env, CONFIG_ADAPTERS, _config_adapter,
     get_feeder_settings, set_feeder_settings, load_config, get_config_map, save_feeders,
 )
-
-# ── Status ─────────────────────────────────────────────────────────────────
-# Moved to system/services.py (systemd_status, docker_status, service_action).
-# Reaches HOST/INIT via `import app`.
-# ───────────────────────────────────────────────────────────────────────────
 from system.services import systemd_status, docker_status, service_action  # noqa: E402
-
-# ── Airspy / receiver / per-SDR settings + SDR presence guard ──────────────
-# Moved to system/sdr.py (parse_airspy_options, write_airspy_options,
-# parse_receiver_options, write_receiver_options, BIASTEE_1090_CONF,
-# _opt_in_receiver, parse_sdr1090, _set_receiver_flag, write_sdr1090,
-# parse_sdr978, write_sdr978, _sdr_autostopped, _sdr1090_serial,
-# _sdr978_serial, _rtl_present, _airspy_present, _enforce_sdr,
-# enforce_sdr_presence, MINI_IDS, R2_IDS, detect_airspy_model,
-# airspy_live_hint). Reaches HOST/AIRSPY_DEFAULT/READSB_DEFAULT/
-# DUMP978_DEFAULT via `import app`.
-# ───────────────────────────────────────────────────────────────────────────
-from system.sdr import (  # noqa: E402
-    parse_airspy_options, write_airspy_options, parse_receiver_options, write_receiver_options,
-    BIASTEE_1090_CONF, _opt_in_receiver, parse_sdr1090, _set_receiver_flag, write_sdr1090,
-    parse_sdr978, write_sdr978, _sdr_autostopped, _sdr1090_serial, _sdr978_serial, _rtl_present,
-    _airspy_present, _enforce_sdr, enforce_sdr_presence, MINI_IDS, R2_IDS, detect_airspy_model,
-    airspy_live_hint,
-)
-
-# ── Log streaming + background poller ──────────────────────────────────────
-# Moved to system/logstream.py (_sse, _journalctl, _log_command, stream_logs)
-# and system/poll.py (background_poll). Reach LOG_LINES via `import app`.
-# ───────────────────────────────────────────────────────────────────────────
+from system.sdr_detect import MINI_IDS, R2_IDS, detect_airspy_model  # noqa: E402
+from system.sdr_settings import write_airspy_options, airspy_live_hint  # noqa: E402
+from system.sdr_presence import _sdr_autostopped, _enforce_sdr, enforce_sdr_presence  # noqa: E402
 from system.logstream import _sse, _journalctl, _log_command, stream_logs  # noqa: E402
 from system.poll import background_poll  # noqa: E402
 

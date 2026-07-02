@@ -52,10 +52,12 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 | `db.py` | Uptime ledger + SQLite history (service_events, metrics) | `fold_uptime`, `_query_events`, `init_db`, `record_service_event`, `record_metrics`, `get_uptime_bars`, `get_service_uptime_pct`, `get_metrics_history`, `get_service_uptime_str`, `get_docker_uptime_str` |
 | `config_io.py` | Feeder config table + per-format read/write adapters | `FEEDER_CONFIGS`, `read_flat_ini`/`write_flat_ini`, `read_shell_vars`/`write_shell_vars`, `read_piaware_config`, `read_docker_env`, `CONFIG_ADAPTERS`, `get_feeder_settings`, `set_feeder_settings`, `load_config`, `get_config_map`, `save_feeders` |
 | `services.py` | Thin status/action wrappers over `INIT`/docker | `systemd_status`, `docker_status`, `service_action` |
-| `feeders.py` | Last-seen + feeder health composition | `get_feeder_last_seen`, `get_fr24_last_seen`, `get_piaware_last_seen`, `FeederHealth`, `feeder_status`, `probe`, `readsb_metrics` |
-| `sdr.py` | Airspy/receiver/per-band SDR settings + presence guard | `parse_airspy_options`/`write_airspy_options`, `parse_receiver_options`/`write_receiver_options`, `parse_sdr1090`/`write_sdr1090`, `parse_sdr978`/`write_sdr978`, `enforce_sdr_presence`, `detect_airspy_model`, `airspy_live_hint` |
+| `feeders.py` | Last-seen + feeder health composition | `get_feeder_last_seen`, `get_fr24_last_seen`, `get_piaware_last_seen`, `FeederHealth`, `feeder_status`, `probe`, `readsb_metrics`, `_dispatch_by_kind` (the one service-vs-docker branch, shared by `feeder_status`/`_feeder_running_for`) |
+| `sdr_detect.py` | Airspy model detection — no dependency on settings or the presence guard | `MINI_IDS`, `R2_IDS`, `detect_airspy_model` |
+| `sdr_settings.py` | Airspy/receiver/per-band SDR settings parse+write, live hint | `parse_airspy_options`/`write_airspy_options`, `parse_receiver_options`/`write_receiver_options`, `parse_sdr1090`/`write_sdr1090`, `parse_sdr978`/`write_sdr978`, `airspy_live_hint` (imports `sdr_detect`) |
+| `sdr_presence.py` | SDR presence guard — stop/resume decoders on stick un/replug | `enforce_sdr_presence`, `_enforce_sdr`, `_rtl_present`, `_airspy_present` (imports `sdr_settings` for `_opt_in_receiver`, `sdr_detect` for `detect_airspy_model`) |
 | `stats.py` | Airspy signal analysis, system metrics, readsb/band stats | `get_airspy_stats`, `gain_recommendation`, `get_system_metrics`, `get_readsb_deep_stats`, `get_band_stats` |
-| `versions.py` | Installed-vs-latest version checking, self-contained cache | `VERSION_SOURCES`, `refresh_versions`, `get_versions` |
+| `versions.py` | Installed-vs-latest version checking, self-contained cache | `VERSION_SOURCES`, `refresh_versions`, `get_versions`, `invalidate_cache` |
 | `logstream.py` | SSE log-follow framing (journalctl / docker logs) | `_sse`, `_journalctl`, `_log_command`, `stream_logs` |
 | `poll.py` | Background poller — records status + metrics every 30s | `background_poll` |
 
@@ -80,14 +82,28 @@ Read routes work on both ports; write routes carry `@admin_required` and
 
 ## Why `app.py` re-exports everything
 
-The existing test suite (119 tests, unchanged by this refactor) does
+The existing test suite (unchanged by the original route-module-split) does
 `import app as appmod` and calls `appmod.get_feeder_last_seen(...)`,
 `appmod.Result`, etc. — one file, one flat namespace. Rather than touch
-15+ test files, `app.py` re-imports every moved name from `system/*.py`
+15+ test files, `app.py` re-imports moved names from `system/*.py`
 (`from system.db import fold_uptime, ...`), so `appmod.X` still resolves
 for anything tests reference. `ruff.toml` carries a scoped
 `per-file-ignores` F401 exemption for `app.py` for exactly this reason —
 those "unused" imports are the point.
+
+**The shim re-exports only what's still referenced, not everything ever
+moved.** The original route-module-split pass re-exported the full contents
+of every `system/*.py` module (~100 names) regardless of whether anything
+still used them through `app`. A later pass (see route-module-split.md §8)
+audited every name against actual `appmod.X`/`app.X` references in
+tests/*.py, routes/*.py, and run.py, and deleted the 24 that had gone
+dead — e.g. once `routes/settings.py` imports `parse_airspy_options`
+straight from `system.sdr_settings`, `app.py` re-exporting it too serves no
+one. **A grouped/namespaced shim (e.g. `app.db.fold_uptime` instead of flat
+`app.fold_uptime`) was considered and rejected** — since the flat names
+can't be removed (tests need them), a namespace layer could only be
+*additive*, widening the interface rather than shrinking it. Deleting dead
+names is a real deepening; adding a parallel access path is not.
 
 **The one sharp edge:** `HOST`, `INIT`, and `DB_FILE` are monkeypatched by
 *reassignment* in `tests/conftest.py` (`appmod.HOST = fake`). They're
@@ -130,14 +146,18 @@ a fresh clone.
 
 ## Testing
 
-`tests/` is unchanged by this refactor (Option A in
-[route-module-split.md](route-module-split.md) §5): every test still does
-`import app as appmod` and exercises functions through that flat namespace,
-using `tests/fakes.py`'s `FakeHost` swapped in via the `fake_host`/`fake_init`
-fixtures in `conftest.py`. Run with:
+The original test suite is untouched by the route-module-split (Option A in
+[route-module-split.md](route-module-split.md) §5): every one of those tests
+does `import app as appmod` and exercises functions through that flat
+namespace, using `tests/fakes.py`'s `FakeHost` swapped in via the
+`fake_host`/`ledger_db` fixtures in `conftest.py`. New test files added while
+deepening individual modules (e.g. `test_poll.py`) import directly from the
+owning `system/*.py` module instead — there's no need to keep growing
+`app.py`'s re-export shim for code that never needs `appmod`-style
+compatibility in the first place. Run with:
 
 ```bash
-pytest -q       # 119 tests
+pytest -q       # tests/ has both styles; see above
 ruff check .    # lint
 ```
 

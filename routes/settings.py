@@ -8,8 +8,9 @@ from system.auth import admin_required
 from system.config_io import (
     FEEDER_CONFIGS, get_feeder_settings, load_config, save_feeders, set_feeder_settings,
 )
-from system.sdr import (
-    detect_airspy_model, parse_airspy_options, parse_receiver_options, parse_sdr1090,
+from system.sdr_detect import detect_airspy_model
+from system.sdr_settings import (
+    parse_airspy_options, parse_receiver_options, parse_sdr1090,
     parse_sdr978, write_airspy_options, write_receiver_options, write_sdr1090, write_sdr978,
 )
 from system.services import service_action

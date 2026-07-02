@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request, send_file
 
 import app
 from system.auth import admin_required
-from system.sdr import BIASTEE_1090_CONF
+from system.sdr_settings import BIASTEE_1090_CONF
 
 logger = logging.getLogger(__name__)
 

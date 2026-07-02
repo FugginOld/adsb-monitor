@@ -68,11 +68,15 @@ class FeederHealth:
         self.status, self.detail = status, detail
         self.last_seen, self.running_for = last_seen, running_for
 
+def _dispatch_by_kind(feeder, if_service, if_docker):
+    """The one place a Feeder's kind decides which resolver runs."""
+    return if_service() if feeder['kind'] == 'service' else if_docker()
+
 def feeder_status(feeder):
     """The single kind-dispatch: (status, detail) for a service or docker Feeder."""
-    if feeder['kind'] == 'service':
-        return app.INIT.status(feeder['key'])
-    return docker_status(feeder['key'])
+    return _dispatch_by_kind(feeder,
+        lambda: app.INIT.status(feeder['key']),
+        lambda: docker_status(feeder['key']))
 
 def _feeder_last_seen(key):
     if key in FEEDER_STATUS_FILES:
@@ -84,9 +88,9 @@ def _feeder_last_seen(key):
     return None
 
 def _feeder_running_for(feeder):
-    if feeder['kind'] == 'service':
-        return get_service_uptime_str(feeder['key'])
-    return get_docker_uptime_str(feeder['key'])
+    return _dispatch_by_kind(feeder,
+        lambda: get_service_uptime_str(feeder['key']),
+        lambda: get_docker_uptime_str(feeder['key']))
 
 def probe(feeder):
     """Compose full Feeder health from the status, last-seen and running-for resolvers."""

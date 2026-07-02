@@ -6,7 +6,7 @@ from system.auth import is_readonly
 from system.config_io import load_config
 from system.db import get_service_uptime_pct, get_uptime_bars
 from system.feeders import feeder_status, probe, readsb_metrics
-from system.sdr import airspy_live_hint
+from system.sdr_settings import airspy_live_hint
 from system.versions import VERSION_SOURCES, get_versions
 
 bp = Blueprint('dashboard', __name__)

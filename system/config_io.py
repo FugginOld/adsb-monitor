@@ -34,6 +34,14 @@ import app
 
 logger = logging.getLogger(__name__)
 
+# FEEDER_CONFIGS is deliberately a separate, smaller registry from
+# feeders.ini (loaded by load_config() below) — feeders.ini declares every
+# monitored unit (including e.g. airspy_adsb/readsb/tar1090, which have no
+# editable settings), while FEEDER_CONFIGS only lists the ones the Settings
+# UI can read/write. A feeders.ini entry with no FEEDER_CONFIGS match is
+# expected, not a bug: routes/settings.py's get_feeder_cfg checks
+# FEEDER_CONFIGS.get(key) first and returns a clear "No config defined for
+# this feeder" instead of ever falling through to a missing schema.
 FEEDER_CONFIGS = {
     'fr24feed': {
         'label': 'FlightRadar24',

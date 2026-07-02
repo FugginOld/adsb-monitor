@@ -318,14 +318,15 @@ monkeypatch silently stops applying to the moved code.
 
 ## 8. Definition of done
 
-- [x] ~~`app.py` under ~150 lines~~ — landed at **193 lines**. Flask app
-      creation, blueprint registration, `init_db()` call, background poll
-      thread start, `make_tagged_app`, `run_server` are all there, but so is
-      the Option A re-export shim (~100 names across 8 `from system.x
-      import (...)` blocks) that the 25 `appmod.<name>` references in
-      tests/ require. That shim is the deliberate cost of "no test files
-      modified" — cutting it below 150 lines means Option B (§5), which is
-      an explicit follow-up, not this pass.
+- [x] `app.py` under ~150 lines. Landed at 193 lines in this pass (the
+      Option A re-export shim re-exported everything moved, not just what
+      was still referenced). A later architecture-improvement pass
+      (`/improve-codebase-architecture`) audited the shim against actual
+      `appmod.X`/`app.X` references across tests/, routes/, and run.py,
+      found 24 of 95 re-exported names had zero references anywhere, and
+      deleted them — landing at **148 lines**, under target. See
+      ARCHITECTURE.md's "Why app.py re-exports everything" for the current
+      shim's contents and rationale.
 - [x] All logic lives in `system/*.py` (13 modules), all HTTP glue lives in
       `routes/*.py` (7 blueprints + `__init__.py:register_blueprints`).
 - [x] `ruff check .` clean (`app.py`'s shim imports carry a scoped
