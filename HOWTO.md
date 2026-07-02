@@ -253,7 +253,8 @@ If you already have readsb and feeders running and just want the monitor:
 
 ```bash
 sudo mkdir -p /opt/adsb-monitor/static
-sudo cp app.py /opt/adsb-monitor/
+sudo cp app.py run.py /opt/adsb-monitor/
+sudo cp -r system routes /opt/adsb-monitor/
 sudo cp static/index.html /opt/adsb-monitor/static/
 ```
 
@@ -279,10 +280,12 @@ icon = globe
 Install Flask and start the app:
 
 ```bash
-pip install flask
+pip install flask psutil
 cd /opt/adsb-monitor
-python app.py
+python run.py
 ```
+
+Run `run.py`, not `app.py` — `run.py` is the entry point; `app.py` is meant to be imported as a module (`system/*.py` does `import app` internally), and executing it directly will crash with a circular-import error.
 
 Or create a systemd unit:
 
@@ -293,7 +296,7 @@ Description=ADS-B Stack Monitor
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/adsb-monitor/app.py
+ExecStart=/usr/bin/python3 /opt/adsb-monitor/run.py
 WorkingDirectory=/opt/adsb-monitor
 Restart=always
 Environment="ADMIN_PORT=5000"

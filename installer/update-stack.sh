@@ -61,9 +61,20 @@ for target in $TARGETS; do
       if [ ! -d "$DEST" ]; then warn "adsb-monitor not installed, skipping"; continue; fi
       # Preserve feeders.ini and history.db
       cp "$SCRIPT_DIR/../app.py" "$DEST/app.py"
+      cp "$SCRIPT_DIR/../run.py" "$DEST/run.py"
+      cp -r "$SCRIPT_DIR/../system" "$DEST/system"
+      cp -r "$SCRIPT_DIR/../routes" "$DEST/routes"
       cp "$SCRIPT_DIR/../static/index.html" "$DEST/static/index.html"
       # Refresh venv deps in case requirements changed
       "$DEST/venv/bin/pip" install --quiet --upgrade flask psutil 2>/dev/null
+      # One-time migration: older installs point systemd straight at app.py,
+      # which now crashes (system/*.py imports app.py as a module; running
+      # it directly as __main__ collides with that import).
+      UNIT=/etc/systemd/system/adsb-monitor.service
+      if [ -f "$UNIT" ] && grep -q 'ExecStart=.*python app\.py' "$UNIT"; then
+        sed -i 's#python app\.py#python run.py#' "$UNIT"
+        systemctl daemon-reload
+      fi
       systemctl restart adsb-monitor
       ok "adsb-monitor updated (feeders.ini + history.db preserved)" ;;
   esac

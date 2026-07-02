@@ -303,6 +303,9 @@ info "[6/6] Installing adsb-monitor..."
 DEST=/opt/adsb-monitor
 mkdir -p "$DEST/static"
 cp "$SCRIPT_DIR/../app.py" "$DEST/app.py"
+cp "$SCRIPT_DIR/../run.py" "$DEST/run.py"
+cp -r "$SCRIPT_DIR/../system" "$DEST/system"
+cp -r "$SCRIPT_DIR/../routes" "$DEST/routes"
 cp "$SCRIPT_DIR/../static/index.html" "$DEST/static/index.html"
 "$SCRIPT_DIR/generate-feeders-ini.sh" "$FEEDERS" "$SDR_DECODER" "$DUAL_BAND" > "$DEST/feeders.ini"
 python3 -m venv "$DEST/venv"
@@ -317,7 +320,7 @@ After=network.target readsb.service
 Type=simple
 User=root
 WorkingDirectory=$DEST
-ExecStart=$DEST/venv/bin/python app.py
+ExecStart=$DEST/venv/bin/python run.py
 Restart=always
 RestartSec=5
 Environment="TAR1090_URL_LOCAL=http://$PI_IP:8504"

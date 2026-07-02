@@ -91,8 +91,12 @@ routes/
   backup.py
 
 app.py               # Flask() init, CONFIG_FILE + other true globals,
-                      # register_blueprints(app), init_db(), start
-                      # background_poll thread, make_tagged_app, run_server
+                      # register_blueprints(app), make_tagged_app, run_server
+                      # (no `if __name__ == '__main__':` — see run.py)
+
+run.py               # Entry point: `import app` + init_db() + start
+                      # background_poll/refresh_versions threads + run_server.
+                      # Added post-migration — see §10.
 ```
 
 This is the same two-layer shape `fugginnas` already uses: `system/` holds
@@ -249,7 +253,7 @@ monkeypatch silently stops applying to the moved code.
       `service_action` imported from `system.services`. Re-export.
       Run `pytest -q`.
       → Done: 119 passed.
-- [ ] **Slice 8 — `system/stats.py`, `system/versions.py`,
+- [x] **Slice 8 — `system/stats.py`, `system/versions.py`,
       `system/logstream.py`, `system/poll.py`**: same pattern, one at a time.
       `stats.py`: `get_system_metrics`, `get_readsb_deep_stats`,
       `get_band_stats`, `_uat_msg_rate`, `_uat_msg_cache`, `get_airspy_stats`,
@@ -329,10 +333,60 @@ monkeypatch silently stops applying to the moved code.
 - [x] `pytest -q` fully green — 119 passed, no test files modified.
 - [x] `grep -rn "from app import\|import app as" tests/` still resolves —
       25 matches, all still valid.
-- [ ] Manual smoke test on rpi5b: dashboard loads, `/api/status`,
-      `/api/settings/feeder/<key>` GET, `/api/logs/<key>` stream. **Not
-      done** — no Pi available in this session. Everything else that can be
-      verified without real hardware/services has been (full route
-      inventory smoke-tested via `test_client()` in §9 slice 9, all 200/404
-      as expected). This box stays open until it's actually run against a
-      live rpi5b.
+- [x] Manual smoke test on rpi5b: dashboard loads, `/api/status`,
+      `/api/settings/feeder/<key>` GET, `/api/logs/<key>` stream.
+      → Done, on real hardware — see §10 for the two real bugs this surfaced
+      (neither was a pure-refactor regression the test suite could have
+      caught, both are now fixed and deployed). Final state:
+      `adsb-monitor.service` `active (running)` on rpi5b, `/api/status`
+      returns all 9 configured feeders/services correctly
+      (`airspy_adsb`, `readsb`, `tar1090`, `fr24feed`, `piaware`,
+      `adsbexchange-feed`, `adsbexchange-mlat`, `adsbfi-feed`,
+      `airnavradar`), matching the live `/opt/adsb-monitor/feeders.ini`
+      exactly.
+
+## 10. Deployment findings (post-migration, on real hardware)
+
+Two bugs surfaced deploying to rpi5b that the test suite structurally
+could not catch (both are about how the *process* boots, not about any
+function's behavior — `pytest` only ever does `import app as appmod`,
+never executes `app.py` as `__main__`):
+
+1. **Circular import crash on boot.** systemd's `ExecStart` ran
+   `python app.py` directly, which executes `app.py` as `__main__`. But
+   `system/*.py` modules do `import app` (required so `conftest.py`'s
+   `appmod.HOST = fake`-style monkeypatches reach them — see §7/§9's
+   `HOST`/`INIT`/`DB_FILE` rule). Python then imports `app.py` a *second*
+   time under the module name `app`, and that second pass collides
+   mid-import with the first (`ImportError: cannot import name
+   'is_readonly' from partially initialized module 'system.auth'`).
+   **Fix:** added `run.py` as the only sanctioned entry point — it does
+   `import app` (a normal, single import) and calls `app.init_db()` /
+   `app.run_server(...)` etc. `app.py` no longer has an `if __name__ ==
+   '__main__':` block at all, so it can never be executed directly again.
+   `install.sh` now generates `ExecStart=.../python run.py`; `update.sh`
+   deploys `run.py` and self-migrates any existing unit still pointing at
+   `app.py` (one-time `sed` + `daemon-reload`).
+2. **Shell scripts untracked as executable.** Unrelated to the refactor's
+   logic, but it blocked deploying the fix above: every `*.sh` in the repo
+   (`install.sh`, `update.sh`, all of `installer/*.sh`) had always been
+   committed as mode `100644`, not `100755` — true since the very first
+   commit that added them, confirmed via `git log --raw`. Harmless until
+   this session, when `install.sh`/`update.sh` started getting real content
+   updates and a Pi where they'd been locally `chmod +x`'d hit a genuine
+   file-mode conflict on every `git pull` (`Your local changes... would be
+   overwritten`). **Fix:** `git update-index --chmod=+x` on all 8 scripts,
+   committed as a pure mode change — permanent, no more manual `chmod`
+   needed after a fresh clone or pull.
+
+Both fixes are committed and pushed to `origin/main`
+(`e12be32` — run.py entry point; `f9374a9` — executable bits) and deployed
+to rpi5b. `pytest -q` stayed green throughout (119 passed) since neither
+bug was reachable from the test suite's import path — this is a real gap
+in the regression net for this specific class of bug (entry-point/process
+bootstrapping), not something more unit tests inside `system/*.py` would
+have caught. Worth a `tests/test_entrypoint.py` that actually subprocesses
+`python run.py` and checks it doesn't exit non-zero in the first second, if
+this class of bug is worth guarding against going forward — not done here
+since it's a new test infra decision, not a mechanical part of this
+refactor.

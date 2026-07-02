@@ -2,6 +2,8 @@
 
 Shared language for this codebase. Domain terms describe *what the app monitors*;
 architecture terms describe *how the code is shaped* (seams, adapters, modules).
+For the physical module/route layout (which file each of these lives in), see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Domain
 
@@ -37,7 +39,7 @@ architecture terms describe *how the code is shaped* (seams, adapters, modules).
 
 ## Architecture
 
-- **Host** — the seam between `app.py`'s business logic and the Linux host it runs on.
+- **Host** — the seam between the `system/*.py` business logic and the Linux host it runs on.
   A thin interface — `run(cmd, timeout) → Result`, `read_text(path)`, `read_json(path)`,
   `write_text(path, data)` — with two adapters: `LinuxHost` (real `subprocess`/`open`)
   in production and `FakeHost` (canned commands/files, records calls) in tests. The Host
