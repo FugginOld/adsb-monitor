@@ -1,4 +1,6 @@
 """Settings routes: airspy, receiver, per-band SDR, feeder list, feeder config."""
+from __future__ import annotations
+
 import logging
 from typing import Any, cast
 
