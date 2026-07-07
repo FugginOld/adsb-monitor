@@ -195,7 +195,20 @@ AIRSPYEOF
     DEV_OPT=""; [ "$DUAL_BAND" = "1" ] && DEV_OPT="--device $SDR_SERIAL "
     sed -i "s|RECEIVER_OPTIONS=.*|RECEIVER_OPTIONS=\"--device-type rtlsdr ${DEV_OPT}--gain $GAIN --lat $LAT --lon $LON\"|" /etc/default/readsb
     systemctl restart readsb
-    ok "readsb configured for RTL-SDR (gain $GAIN)" ;;
+    ok "readsb configured for RTL-SDR (gain $GAIN)"
+    # A stick left idle (esp. a low-traffic 978 UAT dongle) gets suspended by USB
+    # autosuspend and drops mid-stream (libusb TIMEOUT / cb transfer errors, then
+    # a crash-restart loop). udev has no host-wide autosuspend flag, so pin it off
+    # per-device instead of the blunt usbcore.autosuspend=-1 kernel param.
+    if [ -d /etc/udev/rules.d ]; then
+      cat > /etc/udev/rules.d/85-rtlsdr-no-autosuspend.rules << 'UDEVEOF'
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0bda", ATTR{idProduct}=="2832", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0bda", ATTR{idProduct}=="2838", TEST=="power/control", ATTR{power/control}="on"
+UDEVEOF
+      udevadm control --reload-rules >/dev/null 2>&1
+      udevadm trigger --subsystem-match=usb >/dev/null 2>&1
+      ok "USB autosuspend disabled for RTL-SDR sticks"
+    fi ;;
   sdrplay)
     warn "SDRplay needs the proprietary SDRplay API + dump1090."
     info "Installing SDRplay API..."
@@ -249,6 +262,24 @@ if systemd-detect-virt --container >/dev/null 2>&1; then
   systemctl daemon-reload
   for _svc in readsb dump978-fa airspy_adsb; do systemctl restart "$_svc" 2>/dev/null; done
   ok "Container detected — SDR services pinned to root (no udev)"
+  # No systemd-udevd here either, so the 85-rtlsdr-no-autosuspend.rules rule above
+  # never fires (device nodes are passthrough, not udev-managed). Reapply the same
+  # power/control=on at boot via a oneshot unit instead.
+  cat > /etc/systemd/system/rtlsdr-no-autosuspend.service << 'SVCEOF'
+[Unit]
+Description=Disable USB autosuspend for RTL-SDR sticks
+After=sys-subsystem-usb.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo on | tee /sys/bus/usb/devices/*/power/control >/dev/null 2>&1 || true'
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+  systemctl daemon-reload
+  systemctl enable --now rtlsdr-no-autosuspend.service >/dev/null 2>&1
+  ok "USB autosuspend disable pinned via systemd (container, no udevd)"
 fi
 
 info "[3/6] Installing graphs1090..."
