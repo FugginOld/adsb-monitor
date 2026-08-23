@@ -3,7 +3,7 @@
 Physical, file-by-file layout of the program. For *what* the domain terms
 mean (Feeder, Uptime, Host, Config store, ...), see [CONTEXT.md](CONTEXT.md).
 For the history of how this got split out of a single 1,841-line `app.py`,
-see [route-module-split.md](route-module-split.md).
+see [docs/route-module-split.md](docs/route-module-split.md).
 
 ## The shape
 
@@ -94,7 +94,7 @@ those "unused" imports are the point.
 **The shim re-exports only what's still referenced, not everything ever
 moved.** The original route-module-split pass re-exported the full contents
 of every `system/*.py` module (~100 names) regardless of whether anything
-still used them through `app`. A later pass (see route-module-split.md §8)
+still used them through `app`. A later pass (see docs/route-module-split.md §8)
 audited every name against actual `appmod.X`/`app.X` references in
 tests/*.py, routes/*.py, and run.py, and deleted the 24 that had gone
 dead — e.g. once `routes/settings.py` imports `parse_airspy_options`
@@ -147,7 +147,7 @@ a fresh clone.
 ## Testing
 
 The original test suite is untouched by the route-module-split (Option A in
-[route-module-split.md](route-module-split.md) §5): every one of those tests
+[docs/route-module-split.md](docs/route-module-split.md) §5): every one of those tests
 does `import app as appmod` and exercises functions through that flat
 namespace, using `tests/fakes.py`'s `FakeHost` swapped in via the
 `fake_host`/`ledger_db` fixtures in `conftest.py`. New test files added while
@@ -164,4 +164,4 @@ ruff check .    # lint
 There is currently no test that subprocesses `run.py` itself (i.e. nothing
 catches an entry-point-level regression like the `__main__`/`import app`
 circular import bug found during the first real deploy of this refactor —
-see route-module-split.md §10). Worth adding if this class of bug recurs.
+see docs/route-module-split.md §10). Worth adding if this class of bug recurs.

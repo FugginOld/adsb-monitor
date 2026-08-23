@@ -8,7 +8,7 @@ networks like FlightAware, FR24, ADSBExchange, etc.
 Business logic lives in `system/*.py` (no Flask imports); HTTP glue lives in
 `routes/*.py` Blueprints, registered below. This module holds the Flask app
 itself, true globals (config paths, `HOST`/`INIT`/`DB_FILE` singletons —
-re-exported below for existing tests, see route-module-split.md §5/§7/§9),
+re-exported below for existing tests, see docs/route-module-split.md §5/§7/§9),
 DB init, and the background poller / server bootstrap.
 
 Two ports run the same app: an admin port (full access) and a read-only port
@@ -78,7 +78,7 @@ from system.auth import is_readonly, admin_required  # noqa: E402
 
 # ── Re-exports from system/*.py ─────────────────────────────────────────────
 # Every name below moved into system/*.py during the route-module-split
-# (route-module-split.md). What's imported here is only what's still
+# (docs/route-module-split.md). What's imported here is only what's still
 # referenced by `appmod.X` in tests/*.py or by run.py/app.py's own code —
 # NOT the full contents of each module (see ARCHITECTURE.md for that). Names
 # routes/*.py needs are imported directly from system/*.py, not through here.
@@ -145,7 +145,7 @@ def run_server(port: int) -> None:
     server.serve_forever()
 
 # No `if __name__ == '__main__':` here on purpose: system/*.py modules do
-# `import app` to reach HOST/INIT/DB_FILE (see route-module-split.md §7/§9).
+# `import app` to reach HOST/INIT/DB_FILE (see docs/route-module-split.md §7/§9).
 # Running this file directly would execute it once as `__main__` and again
 # as `app` when those imports fire, colliding mid-import
 # (ImportError: partially initialized module 'system.auth'). Start the

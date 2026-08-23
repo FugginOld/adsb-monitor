@@ -1,6 +1,6 @@
 """Tests for the background poller (system/poll.py): the orchestration engine
 deepened out of a single untested while-True loop — see ARCHITECTURE.md
-candidate 4 (route-module-split.md-style TDD slices, grilled interactively).
+candidate 4 (docs/route-module-split.md-style TDD slices, grilled interactively).
 """
 import pytest
 
