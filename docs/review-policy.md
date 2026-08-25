@@ -51,7 +51,8 @@ failure to learn.
 - Container detection pinning `readsb` / `dump978-fa` / `airspy_adsb` to root,
   and the oneshot boot unit reapplying `power/control=on`. LXC has no
   systemd-udevd, so udev rules silently never fire. This broke twice.
-  (96f2204, 6ad33f4, comment at `installer/install-stack.sh:265-267`)
+  (96f2204, 6ad33f4, pinning at `installer/install-stack.sh:256-264`, the
+  boot-unit comment at `:265-267`)
 - The 15s wait loop before graphs1090 step [3/6]. graphs1090 enables 978
   graphs only if `/run/skyaware978/aircraft.json` exists *at install time*;
   without the wait, UAT graphs are silently never configured. (058745e)
@@ -67,8 +68,9 @@ failure to learn.
 - `rm -rf` before `cp -r system`. A plain recursive copy nests a second copy
   inside the existing destination on every deploy after the first: new files
   never land where Python looks, and deleted modules stay behind and get
-  imported by accident. Repeated in `install.sh`, `update.sh` and
-  `install-stack.sh` deliberately. (84791dd)
+  imported by accident. Repeated in `install.sh`, `update.sh`,
+  `installer/install-stack.sh` and `installer/update-stack.sh`
+  deliberately — all four deploy paths. (84791dd)
 - `adsb-monitor.service` is generated at install time from the detected IP and
   stays untracked and gitignored. The checked-in version was machine-specific
   and leaked a LAN IP and a personal domain into the repo. (5d7088f)
@@ -112,8 +114,8 @@ most expensive to get wrong.
   be additive: a second access path, not a smaller interface.
 - `HOST`, `INIT` and `DB_FILE` stay defined in `app.py`, and every consumer
   does `import app` and dereferences at the call site. `from system.x import
-  HOST` gives each importing module its own binding that `conftest.py`'s
-  reassignment monkeypatch cannot reach. Moving them into
+  HOST` gives each importing module its own binding that
+  `tests/conftest.py`'s reassignment monkeypatch cannot reach. Moving them into
   `system/init_adapter.py` or `system/db.py` "where they belong" breaks the
   whole fixture layer.
 - The three `sdr_*` modules stay separate. The imports form a one-way DAG,
@@ -138,9 +140,10 @@ most expensive to get wrong.
 Stated in comments, weaker evidence than the above, but read the comment
 before proposing a change:
 
-- The version pill's `CORE_KEYS` / `VERSION_SOURCES` gating — feeders with no
-  version source otherwise sit on a permanent "checking…"
-  (`routes/dashboard.py:69`, 77af67d, 08fb138)
+- The version pill's two-layer gating — feeders with no version source
+  otherwise sit on a permanent "checking…". Server-side on `VERSION_SOURCES`
+  (`routes/dashboard.py:69`, 08fb138); client-side on `CORE_KEYS`
+  (`static/index.html:677`, gated at `:692`, 77af67d). Both layers, not one.
 - `get_versions()` never blocks; it returns a possibly-empty cache and
   refreshes in a thread (`system/versions.py:118`)
 - `FEEDER_CONFIGS` is deliberately separate from `feeders.ini`
