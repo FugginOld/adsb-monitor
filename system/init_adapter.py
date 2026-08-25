@@ -61,6 +61,14 @@ class InitAdapter:
     """Base: status/action/running_since for a named OS service."""
     def status(self, service: str) -> tuple[str, str]:
         raise NotImplementedError
+    def sub_state(self, service: str) -> str:
+        """Finer-grained state than status(), or '' where the init system has none.
+
+        Only systemd distinguishes the two flavours of 'activating' that matter to
+        the SDR guard: 'start' (legitimately coming up) vs 'auto-restart' (crash
+        looping). Defaults to '' so other adapters need not implement it.
+        """
+        return ''
     def action(self, service: str, act: str) -> tuple[bool, str]:
         raise NotImplementedError
     def running_since(self, service: str) -> str | None:
@@ -73,6 +81,9 @@ class SystemdAdapter(InitAdapter):
         r = self._host.run(['systemctl', 'is-active', service], timeout=3)
         state = r.out.strip()
         return ('ok' if state == 'active' else 'error'), state
+    def sub_state(self, service: str) -> str:
+        r = self._host.run(['systemctl', 'show', '-p', 'SubState', '--value', service], timeout=3)
+        return r.out.strip()
     def action(self, service: str, act: str) -> tuple[bool, str]:
         r = self._host.run(['systemctl', act, service], timeout=10)
         return r.ok, r.out + r.err

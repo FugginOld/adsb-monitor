@@ -36,6 +36,40 @@ def test_1090_absent_stops_readsb(fake_host):
     assert 'readsb' in appmod._sdr_autostopped
 
 
+def test_crash_looping_decoder_is_stopped(fake_host):
+    """A decoder crash-looping on a missing stick reports `activating`, not `failed`.
+
+    Regression: with Restart=always the unit sits in activating/auto-restart for
+    almost the whole restart interval and is only `failed` for a fraction of a
+    second, so the guard sampled `activating` every poll and never probed. A real
+    station ran 210k restarts over ~36 days with the 1090 stick unplugged and the
+    dashboard never showed it as stopped.
+    """
+    fake_host.files = {appmod.READSB_DEFAULT: RTL1090}
+    fake_host.commands = {
+        ('systemctl', 'is-active', 'readsb'): Result(3, 'activating', ''),
+        ('systemctl', 'show', '-p', 'SubState', '--value', 'readsb'): Result(0, 'auto-restart', ''),
+        USBSER: Result(0, '00000978\n', ''),   # only the 978 stick
+    }
+    appmod.enforce_sdr_presence()
+    assert _did(fake_host, 'readsb', 'stop')
+    assert 'readsb' in appmod._sdr_autostopped
+
+
+def test_starting_decoder_left_alone(fake_host):
+    """`activating` while genuinely starting must still be left to settle —
+    that early return is why the probe was gated in the first place."""
+    fake_host.files = {appmod.READSB_DEFAULT: RTL1090}
+    fake_host.commands = {
+        ('systemctl', 'is-active', 'readsb'): Result(3, 'activating', ''),
+        ('systemctl', 'show', '-p', 'SubState', '--value', 'readsb'): Result(0, 'start', ''),
+        USBSER: Result(0, '00000978\n', ''),   # stick missing, but don't act yet
+    }
+    appmod.enforce_sdr_presence()
+    assert not _did(fake_host, 'readsb', 'stop')
+    assert 'readsb' not in appmod._sdr_autostopped
+
+
 def test_1090_present_left_alone(fake_host):
     fake_host.files = {appmod.READSB_DEFAULT: RTL1090}
     fake_host.commands = {

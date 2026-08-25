@@ -12,6 +12,9 @@ import app
 def systemd_status(service: str) -> tuple[str, str]:
     return app.INIT.status(service)
 
+def systemd_sub_state(service: str) -> str:
+    return app.INIT.sub_state(service)
+
 def docker_status(container: str) -> tuple[str, str]:
     r = app.HOST.run(['docker', 'inspect', '--format', '{{.State.Status}}', container], timeout=5)
     state = r.out.strip()

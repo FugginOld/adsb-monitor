@@ -22,7 +22,7 @@ from typing import Callable, cast
 import app
 from system.sdr_detect import detect_airspy_model
 from system.sdr_settings import _opt_in_receiver
-from system.services import service_action, systemd_status
+from system.services import service_action, systemd_status, systemd_sub_state
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +65,25 @@ def _enforce_sdr(service: str, present_fn: Callable[[], bool | None]) -> None:
 
     present_fn() -> True/False/None (None = not applicable on this host, skip).
     An active decoder is proof its SDR is present, so we skip the probe then and
-    just clear any stale auto-stop flag; we probe only once it's inactive/failed.
+    just clear any stale auto-stop flag; we probe once it's inactive, failed, or
+    stuck in a systemd auto-restart loop.
     """
     state = systemd_status(service)[1]
     if state == 'active':
         _sdr_autostopped.discard(service)  # reading fine = SDR present; clear stale flag
         return
-    if state not in ('inactive', 'failed'):
-        return  # activating/reloading — let it settle before probing
+    # 'activating' covers two opposite cases and systemctl is-active can't tell
+    # them apart: a service genuinely coming up (SubState 'start') must be left
+    # to settle, but one crash-looping on Restart= (SubState 'auto-restart') is
+    # exactly what this guard is for. With RestartSec=15 the unit sits in
+    # auto-restart for effectively the whole cycle and is 'failed' only for a
+    # fraction of a second, so gating on 'failed' alone meant a decoder whose
+    # stick was unplugged never got stopped — one station logged 210k restarts
+    # over ~36 days while the dashboard showed nothing wrong.
+    if state == 'activating' and systemd_sub_state(service) != 'auto-restart':
+        return  # still starting — let it settle before probing
+    if state not in ('inactive', 'failed', 'activating'):
+        return  # reloading/deactivating — not a state we can judge
     present = present_fn()
     if present is None:
         return
