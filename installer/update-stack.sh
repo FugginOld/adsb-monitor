@@ -18,6 +18,16 @@ source "$SCRIPT_DIR/lib.sh"
 
 if [ "$EUID" -ne 0 ]; then err "Run with sudo: sudo ./update-stack.sh"; exit 1; fi
 
+# Is airspy_adsb installed on this host?
+#
+# Deliberately NOT `systemctl list-unit-files | grep -q airspy_adsb`: this script
+# runs under `set -o pipefail`, grep -q exits at the first match, systemctl then
+# dies of SIGPIPE (141), and pipefail reports that as the pipeline's status. The
+# test therefore failed exactly when the unit WAS present — and only on hosts
+# that have an Airspy, since a no-match run lets systemctl finish cleanly.
+# Command substitution has no pipe to break.
+has_airspy() { [ -n "$(systemctl list-unit-files airspy_adsb.service --no-legend 2>/dev/null)" ]; }
+
 # Allow non-interactive --all or TUI selection
 if [ "${1:-}" = "--all" ]; then
   TARGETS="airspy readsb graphs1090 monitor"
@@ -26,7 +36,7 @@ else
   # whiptail --checklist has no disabled row, so a host with no Airspy gets the
   # entry pre-unchecked and labelled instead of greyed out. Same detection the
   # airspy case below uses, so the menu can't disagree with what the run does.
-  if systemctl list-unit-files | grep -q airspy_adsb; then
+  if has_airspy; then
     AIRSPY_DESC="airspy_adsb decoder binary"; AIRSPY_STATE=ON
   else
     AIRSPY_DESC="airspy_adsb decoder binary (not installed)"; AIRSPY_STATE=OFF
@@ -77,7 +87,7 @@ run_upstream() {   # run_upstream <label> <url>
 for target in $TARGETS; do
   case "$target" in
     airspy)
-      if systemctl list-unit-files | grep -q airspy_adsb; then
+      if has_airspy; then
         info "Updating airspy_adsb..."
         run_upstream "airspy_adsb" "https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/update-binary.sh"
       else
