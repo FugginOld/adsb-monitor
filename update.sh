@@ -23,7 +23,13 @@ sudo cp run.py            ${DEST}/run.py
 sudo rm -rf ${DEST}/system ${DEST}/routes
 sudo cp -r system         ${DEST}/system
 sudo cp -r routes         ${DEST}/routes
-sudo cp static/index.html ${DEST}/static/index.html
+# static/ is now a tree, not one file: the Tabler icon font is vendored under
+# static/vendor/ so the dashboard's icons work on an offline/firewalled box.
+# Same rm -rf-then-copy rule as system/ and routes/ — a plain `cp -r static
+# $DEST/static` nests a copy inside the existing dir on every deploy after
+# the first, and stale files are left behind.
+sudo rm -rf ${DEST}/static
+sudo cp -r static ${DEST}/static
 # Note: feeders.ini is NOT overwritten to preserve your customizations
 
 # One-time migration: installs from before the system/routes split point

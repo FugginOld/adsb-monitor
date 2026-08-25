@@ -17,7 +17,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ADS-B Stack Monitor</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
+<!-- Icons are served locally, not from a CDN: this is a LAN appliance that is
+     often firewalled or fully offline, and a failed CDN request blanks all 70
+     icons — including the icon-only buttons, which then have no visible label.
+     The full set is vendored on purpose: feeders.ini can name any Tabler icon
+     (see the ti-${f.icon} template in makeCard), so a subset would break
+     user-configured feeders. -->
+<link rel="stylesheet" href="/static/vendor/tabler/tabler-icons.min.css">
 <style>
   /* All styling lives here. The :root block defines color variables (surfaces,
      text, accents, terminal colors); [data-theme="light"] overrides them for
@@ -26,7 +32,7 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --bg: #f8f8f6; --surface: #ffffff; --surface2: #f1f0ec; --surface3: #e8e7e3;
-    --border: rgba(0,0,0,0.09); --text: #1a1a18; --text2: #6b6b68; --text3: #9b9b98;
+    --border: rgba(0,0,0,0.09); --text: #1a1a18; --text2: #5c5c59; --text3: #6b6b68;
     --ok-bg: #eaf3de; --ok-text: #3b6d11;
     --err-bg: #fcebeb; --err-text: #a32d2d;
     --warn-bg: #faeeda; --warn-text: #854f0b;
@@ -39,7 +45,7 @@
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #1a1a18; --surface: #242422; --surface2: #2c2c2a; --surface3: #343432;
-      --border: rgba(255,255,255,0.09); --text: #f0efeb; --text2: #a8a8a5; --text3: #6b6b68;
+      --border: rgba(255,255,255,0.09); --text: #f0efeb; --text2: #b4b4b0; --text3: #9d9d98;
       --ok-bg: #173404; --ok-text: #c0dd97;
       --err-bg: #501313; --err-text: #f09595;
       --warn-bg: #412402; --warn-text: #fac775;
@@ -47,14 +53,14 @@
       --blue: #b5d4f4; --blue-bg: #042c53;
     }
   }
-  [data-theme="light"] { color-scheme: light; --bg: #f8f8f6; --surface: #ffffff; --surface2: #f1f0ec; --surface3: #e8e7e3; --border: rgba(0,0,0,0.09); --text: #1a1a18; --text2: #6b6b68; --text3: #9b9b98; --ok-bg: #eaf3de; --ok-text: #3b6d11; --err-bg: #fcebeb; --err-text: #a32d2d; --warn-bg: #faeeda; --warn-text: #854f0b; --chk-bg: #f1f0ec; --chk-text: #6b6b68; --blue: #0c447c; --blue-bg: #e6f1fb; --term-bg: #0d1117; --term-text: #e6edf3; --term-dim: #8b949e; }
-  [data-theme="dark"]  { color-scheme: dark;  --bg: #1a1a18; --surface: #242422; --surface2: #2c2c2a; --surface3: #343432; --border: rgba(255,255,255,0.09); --text: #f0efeb; --text2: #a8a8a5; --text3: #6b6b68; --ok-bg: #173404; --ok-text: #c0dd97; --err-bg: #501313; --err-text: #f09595; --warn-bg: #412402; --warn-text: #fac775; --chk-bg: #2c2c2a; --chk-text: #a8a8a5; --blue: #b5d4f4; --blue-bg: #042c53; }
+  [data-theme="light"] { color-scheme: light; --bg: #f8f8f6; --surface: #ffffff; --surface2: #f1f0ec; --surface3: #e8e7e3; --border: rgba(0,0,0,0.09); --text: #1a1a18; --text2: #5c5c59; --text3: #6b6b68; --ok-bg: #eaf3de; --ok-text: #3b6d11; --err-bg: #fcebeb; --err-text: #a32d2d; --warn-bg: #faeeda; --warn-text: #854f0b; --chk-bg: #f1f0ec; --chk-text: #6b6b68; --blue: #0c447c; --blue-bg: #e6f1fb; --term-bg: #0d1117; --term-text: #e6edf3; --term-dim: #8b949e; }
+  [data-theme="dark"]  { color-scheme: dark;  --bg: #1a1a18; --surface: #242422; --surface2: #2c2c2a; --surface3: #343432; --border: rgba(255,255,255,0.09); --text: #f0efeb; --text2: #b4b4b0; --text3: #9d9d98; --ok-bg: #173404; --ok-text: #c0dd97; --err-bg: #501313; --err-text: #f09595; --warn-bg: #412402; --warn-text: #fac775; --chk-bg: #2c2c2a; --chk-text: #a8a8a5; --blue: #b5d4f4; --blue-bg: #042c53; }
 
   html, body { height: 100%; background: var(--bg); }
   body { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; display: flex; overflow: hidden; }
 
   /* ── Sidebar ── */
-  .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); height: 100vh; overflow-y: auto; overflow-x: hidden; border-right: 0.5px solid var(--border); background: var(--bg); display: flex; flex-direction: column; padding: 1rem; gap: 0.875rem; transition: transform 0.25s; }
+  .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); height: 100vh; height: 100dvh; overflow-y: auto; overflow-x: hidden; border-right: 0.5px solid var(--border); background: var(--bg); display: flex; flex-direction: column; padding: 1rem; gap: 0.875rem; transition: transform 0.25s; }
   .sidebar-header { display: flex; align-items: center; justify-content: space-between; }
   .sidebar-header h1 { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
   .sidebar-header h1 i { color: var(--text2); font-size: 15px; }
@@ -106,7 +112,7 @@
   /* ── System stats bar ── */
   .sys-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
   .sys-stat { background: var(--surface2); border-radius: 6px; padding: 0.375rem 0.5rem; text-align: center; }
-  .sys-stat-label { font-size: 9px; color: var(--text3); margin-bottom: 1px; }
+  .sys-stat-label { font-size: 10px; color: var(--text3); margin-bottom: 1px; }
   .sys-stat-value { font-size: 13px; font-weight: 500; color: var(--text); }
   .sys-stat-value.warn { color: var(--warn-text); }
   .sys-stat-value.bad  { color: var(--err-text); }
@@ -125,7 +131,7 @@
   .band-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
   .band-dot.up { background: #4ade80; } .band-dot.down { background: #f87171; }
   .band-sub { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
-  .band-note { font-size: 9px; color: var(--text3); margin-top: 4px; font-style: italic; }
+  .band-note { font-size: 10px; color: var(--text3); margin-top: 4px; font-style: italic; }
   .gain-rec { font-size: 11px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; display: flex; align-items: center; gap: 5px; }
   .gain-rec.ok      { background: var(--ok-bg);   color: var(--ok-text); }
   .gain-rec.warn    { background: var(--warn-bg);  color: var(--warn-text); }
@@ -220,7 +226,7 @@
   .terminal .log-line.ok   { color: #3fb950; }
   .status-bar { padding: 0.4rem 1.25rem; font-size: 11px; color: var(--term-dim); border-top: 0.5px solid rgba(255,255,255,0.06); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; flex-shrink: 0; }
-  .status-dot.inactive { background: #6b6b68; }
+  .status-dot.inactive { background: transparent; box-shadow: inset 0 0 0 2px var(--text3); }
   /* Embedded system-log terminal in Settings (reuses dark .terminal styles) */
   .sys-term-wrap { background: var(--term-bg); border-radius: 0 0 12px 12px; overflow: hidden; display: flex; flex-direction: column; }
   .sys-term-wrap .terminal { height: 280px; flex: none; }
@@ -231,6 +237,10 @@
   .cub-up      { background: var(--ok-text); opacity: 0.6; }
   .cub-down    { background: var(--err-text); opacity: 0.7; }
   .cub-unknown { background: var(--surface3); }
+  .bars-legend { font-size: 10px; color: var(--text3); margin-bottom: .35rem; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .bars-legend span { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+  .lg-up { background: var(--ok-text); opacity: .6; } .lg-down { background: var(--err-text); opacity: .7; }
+  .lg-unknown { background: var(--surface3); }
 
   /* Alert banner */
   .alert-banner { background: var(--err-bg); color: var(--err-text); border-radius: 8px; padding: 0.5rem 0.875rem; font-size: 12px; display: none; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -258,11 +268,54 @@
 
   a { color: var(--blue); text-decoration: none; }
   .spinning { animation: spin 0.8s linear infinite; display: inline-block; }
+
+  /* Off-screen but readable by AT — used by the skip link and the poll announcer. */
+  .skel { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+  .skel-row { height: 12px; border-radius: 4px; background: var(--surface2); animation: skel-pulse 1.4s ease-in-out infinite; }
+  .skel-row:nth-child(2) { width: 85%; } .skel-row:nth-child(3) { width: 70%; } .skel-row:nth-child(4) { width: 60%; }
+  @keyframes skel-pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  .panel-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--err-text); }
+
+  .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .skip-link:focus { position: fixed; top: 8px; left: 8px; width: auto; height: auto; margin: 0;
+    clip: auto; clip-path: none; z-index: 1000; padding: 8px 14px; border-radius: 8px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border); }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── A11y: focus + motion ──
+     One global focus ring. :focus-visible (not :focus) so a mouse click on a
+     card doesn't leave a ring behind, but every keyboard tab stop shows one —
+     .field input/select set outline:none and were the only styled focus in the
+     file, leaving ~40 sidebar controls with no visible focus at all. */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .field input:focus-visible, .field select:focus-visible { outline-offset: 0; }
+
+  /* Honour the OS "reduce motion" setting: the refresh spinner runs on every
+     30s poll, which is exactly the kind of perpetual animation the setting
+     exists to stop. Kept as near-zero rather than `none` so transitionend /
+     animationend listeners (if any are ever added) still fire. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+    }
+  }
   .error-msg { background: var(--err-bg); color: var(--err-text); border-radius: 8px; padding: 0.75rem 1rem; font-size: 12px; }
   .hidden { display: none !important; }
 
   /* ── Mobile ── */
+  /* ── B1: tablet band ──
+     Between 701px and 1024px the 340px sidebar plus the map iframe left the map
+     about 380px wide — the desktop layout applied to a screen that can't hold
+     it. Narrow the rail rather than adding a third layout. */
+  @media (min-width: 701px) and (max-width: 1024px) {
+    :root { --sidebar-w: 260px; }
+    .metric-grid { gap: 4px; }
+    .metric-value { font-size: 18px; }
+    .view-toggle .vbtn span { display: none; }
+  }
+
   @media (max-width: 700px) {
     body { flex-direction: column; overflow: auto; }
     .sidebar { width: 100%; min-width: unset; height: auto; max-height: none; border-right: none; border-bottom: 0.5px solid var(--border); overflow: visible; }
@@ -276,6 +329,18 @@
     .main-toolbar { flex-wrap: wrap; }
     .fill-frame { height: 70vh; }
     .settings-scroll { overflow: visible; }
+
+    /* B2: 28px controls wrapped a 15px glyph. Below the 44px floor, and the view
+       toggle is the app's primary navigation. */
+    .icon-btn, .vbtn, .modal-btn, .eye-btn { min-width: 44px; min-height: 44px; }
+    .vbtn { padding: 6px 12px; }
+    .view-toggle .vbtn span { display: inline; }   /* keep labels: icon-only nav hurts discoverability */
+    .btn, .action-btn { min-height: 44px; }
+
+    /* B3: <16px inputs make mobile Safari zoom the viewport on focus and never
+       zoom back, leaving the dashboard scrolled sideways after editing a gain. */
+    .field input, .field select, input, select { font-size: 16px; }
+    .band-note, .field-hint { font-size: 11px; }
   }
 </style>
 </head>
@@ -290,40 +355,43 @@
 -->
 <body>
 
+<a class="skip-link visually-hidden" href="#view-map">Skip to map</a>
+<div id="sr-status" class="visually-hidden" role="status" aria-live="polite"></div>
+
 <!-- Log Modal -->
 <div class="modal-overlay" id="modal" onclick="closeModalOnOverlay(event)">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-text" tabindex="-1">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-terminal-2"></i><span id="modal-title-text">Logs</span></div>
+      <div class="modal-title"><i class="ti ti-terminal-2" aria-hidden="true"></i><span id="modal-title-text">Logs</span></div>
       <div class="modal-actions">
-        <button class="modal-btn" onclick="copyLogs('terminal',this)"><i class="ti ti-copy"></i> Copy</button>
-        <button class="modal-btn" onclick="clearTerminal()"><i class="ti ti-eraser"></i> Clear</button>
-        <button class="modal-btn" onclick="scrollToBottom()"><i class="ti ti-arrow-down"></i> Bottom</button>
-        <button class="modal-btn danger" onclick="closeModal()"><i class="ti ti-x"></i></button>
+        <button class="modal-btn" onclick="copyLogs('terminal',this)"><i class="ti ti-copy" aria-hidden="true"></i> Copy</button>
+        <button class="modal-btn" onclick="clearTerminal()"><i class="ti ti-eraser" aria-hidden="true"></i> Clear</button>
+        <button class="modal-btn" onclick="scrollToBottom()"><i class="ti ti-arrow-down" aria-hidden="true"></i> Bottom</button>
+        <button class="modal-btn danger" onclick="closeModal()" aria-label="Close logs"><i class="ti ti-x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="terminal" id="terminal"></div>
     <div class="status-bar">
-      <div class="status-dot inactive" id="status-dot"></div>
-      <span id="status-text">Connecting...</span>
+      <div class="status-dot inactive" id="status-dot" aria-hidden="true"></div>
+      <span id="status-text" role="status">Connecting...</span>
     </div>
   </div>
 </div>
 
 <!-- Sidebar -->
-<div class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <h1><i class="ti ti-radar"></i> ADS-B monitor <span id="app-version" class="version-tag"></span></h1>
+<aside class="sidebar" id="sidebar" aria-label="Station status">
+  <header class="sidebar-header">
+    <h1><i class="ti ti-radar" aria-hidden="true"></i> ADS-B monitor <span id="app-version" class="version-tag"></span></h1>
     <div class="header-actions">
-      <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme"><i class="ti ti-sun-moon"></i></button>
-      <button class="icon-btn" onclick="load()"><i class="ti ti-refresh" id="ri"></i></button>
-      <button class="icon-btn menu-btn" onclick="toggleSidebar()" title="Collapse"><i class="ti ti-layout-sidebar-left-collapse"></i></button>
+      <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme"><i class="ti ti-sun-moon" aria-hidden="true"></i></button>
+      <button class="icon-btn" onclick="load()" title="Refresh now" aria-label="Refresh now"><i class="ti ti-refresh" id="ri" aria-hidden="true"></i></button>
+      <button class="icon-btn menu-btn" onclick="toggleSidebar()" title="Collapse" aria-label="Collapse sidebar" aria-expanded="true" aria-controls="sidebar"><i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true"></i></button>
     </div>
-  </div>
+  </header>
 
   <!-- Alert banner -->
-  <div class="alert-banner" id="alert-banner">
-    <i class="ti ti-alert-triangle"></i>
+  <div class="alert-banner" id="alert-banner" role="status" aria-label="Station alerts">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
     <div class="alert-items" id="alert-items"></div>
   </div>
 
@@ -333,13 +401,13 @@
       <div class="metric-label">Aircraft</div>
       <div class="metric-value" id="m-ac">—</div>
       <div class="metric-sub">seen &lt; 60s</div>
-      <svg class="metric-spark" id="spark-ac" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>
+      <svg class="metric-spark" id="spark-ac" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="Aircraft trend, last 60 minutes"></svg>
     </div>
     <div class="metric">
       <div class="metric-label">Msg / sec</div>
       <div class="metric-value" id="m-msg">—</div>
       <div class="metric-sub">from readsb</div>
-      <svg class="metric-spark" id="spark-msg" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>
+      <svg class="metric-spark" id="spark-msg" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="Message rate trend, last 60 minutes"></svg>
     </div>
     <div class="metric">
       <div class="metric-label">Max range</div>
@@ -369,10 +437,10 @@
     <div class="signal-row"><span class="signal-label">Noise</span><div class="signal-bar-wrap"><div class="signal-bar noise" id="sig-noise-bar" style="width:0%"></div></div><span class="signal-val" id="sig-noise">—</span></div>
     <div class="gain-rec hidden" id="gain-rec"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
-      <a id="signal-history-link" href="#" target="_blank" style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px;"><i class="ti ti-chart-line" style="font-size:12px"></i> view signal history ↗</a>
+      <a id="signal-history-link" href="#" target="_blank" style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px;"><i class="ti ti-chart-line" style="font-size:12px" aria-hidden="true"></i> view signal history <i class="ti ti-external-link" style="font-size:11px" aria-hidden="true"></i></a>
     </div>
     <button class="action-btn hidden" id="gain-apply-btn" onclick="applyRecommendedGain()" style="margin-top:4px;font-size:11px;padding:4px 8px;">
-      <i class="ti ti-wand"></i> Apply recommended gain
+      <i class="ti ti-wand" aria-hidden="true"></i> Apply recommended gain
     </button>
   </div>
 
@@ -392,20 +460,21 @@
     <div class="band-note">SNR / noise floor not reported by dump978</div>
   </div>
 
-  <div><div class="section-label" style="margin-bottom:.35rem">core services</div><div class="cards" id="core-cards"></div></div>
-  <div><div class="section-label" style="margin-bottom:.35rem">feeders</div><div class="cards" id="feeder-cards"></div></div>
+  <section><h2 class="section-label" style="margin-bottom:.35rem">core services</h2>
+    <p class="bars-legend">bars = last 7 days, oldest at left · <span class="lg-up"></span> up <span class="lg-down"></span> down <span class="lg-unknown"></span> no data</p><div class="cards" id="core-cards"></div></section>
+  <section><h2 class="section-label" style="margin-bottom:.35rem">feeders</h2><div class="cards" id="feeder-cards"></div></section>
   <div class="ts" id="ts"></div>
-</div>
+</aside>
 
 <!-- Main -->
-<div class="main">
+<main class="main">
   <div class="main-toolbar">
-    <div class="toolbar-label" id="toolbar-label"><i class="ti ti-map-pin"></i> <span>tar1090 live map</span></div>
-    <div class="view-toggle">
-      <button class="vbtn active" id="btn-map"      onclick="showView('map')"><i class="ti ti-map-pin"></i> <span>Map</span></button>
-      <button class="vbtn"        id="btn-graphs"   onclick="showView('graphs')"><i class="ti ti-chart-line"></i> <span>Graphs</span></button>
-      <button class="vbtn"        id="btn-settings" onclick="showView('settings')"><i class="ti ti-settings"></i> <span>Settings</span></button>
-    </div>
+    <div class="toolbar-label" id="toolbar-label"><i class="ti ti-map-pin" aria-hidden="true"></i> <span>tar1090 live map</span></div>
+    <nav class="view-toggle" aria-label="View">
+      <button class="vbtn active" id="btn-map"      onclick="showView('map')"><i class="ti ti-map-pin" aria-hidden="true"></i> <span>Map</span></button>
+      <button class="vbtn"        id="btn-graphs"   onclick="showView('graphs')"><i class="ti ti-chart-line" aria-hidden="true"></i> <span>Graphs</span></button>
+      <button class="vbtn"        id="btn-settings" onclick="showView('settings')"><i class="ti ti-settings" aria-hidden="true"></i> <span>Settings</span></button>
+    </nav>
   </div>
 
   <!-- Map -->
@@ -425,18 +494,18 @@
 
         <!-- Airspy -->
         <div class="scard" id="airspy-card">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> Airspy SDR<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon" aria-hidden="true"></i> Airspy SDR<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div style="font-size:12px;color:var(--text2);" id="airspy-model-info">Detecting device...</div>
             <div class="field-row">
               <div class="field">
-                <div class="field-label">Gain (0–21)</div>
+                <label class="field-label" for="airspy-gain">Gain (0–21)</label>
                 <input type="number" id="airspy-gain" min="0" max="21" value="21">
                 <div class="field-hint">Each step ≈ 3 dB. Reduce if overloading.</div>
               </div>
               <div class="field">
-                <div class="field-label">Sample Rate &nbsp;<button type="button" style="font-size:10px;padding:1px 7px;border-radius:5px;border:.5px solid var(--border);background:var(--blue-bg);color:var(--blue);cursor:pointer;" onclick="useRecommendedRate()">use recommended</button></div>
-                <select id="airspy-rate">
+                <div class="field-label" id="airspy-rate-label">Sample Rate &nbsp;<button type="button" style="font-size:10px;padding:1px 7px;border-radius:5px;border:.5px solid var(--border);background:var(--blue-bg);color:var(--blue);cursor:pointer;" onclick="useRecommendedRate()">use recommended</button></div>
+                <select id="airspy-rate" aria-labelledby="airspy-rate-label">
                   <option value="6">6 MSPS — Mini (recommended)</option>
                   <option value="3">3 MSPS — Mini</option>
                   <option value="12">12 MSPS — R2 (recommended)</option>
@@ -446,38 +515,38 @@
               </div>
             </div>
             <div class="field">
-              <div class="field-label">Extra options</div>
+              <label class="field-label" for="airspy-options">Extra options</label>
               <input type="text" id="airspy-options" placeholder="-v -f 1 -w 5 -C 95 -E 60">
             </div>
             <div class="btn-row">
-              <button class="btn btn-primary" onclick="saveAirspy(event)"><i class="ti ti-device-floppy"></i> Save &amp; restart</button>
-              <span class="toast" id="airspy-toast"></span>
+              <button class="btn btn-primary" onclick="saveAirspy(event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save &amp; restart</button>
+              <span class="toast" role="status" id="airspy-toast"></span>
             </div>
           </div>
         </div>
 
         <!-- Receiver -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-map-pin icon"></i> Receiver location<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-map-pin icon" aria-hidden="true"></i> Receiver location<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div class="field-row">
-              <div class="field"><div class="field-label">Latitude</div><input type="number" id="recv-lat" step="0.00001"></div>
-              <div class="field"><div class="field-label">Longitude</div><input type="number" id="recv-lon" step="0.00001"></div>
+              <div class="field"><label class="field-label" for="recv-lat">Latitude</label><input type="number" id="recv-lat" step="0.00001"></div>
+              <div class="field"><label class="field-label" for="recv-lon">Longitude</label><input type="number" id="recv-lon" step="0.00001"></div>
             </div>
-            <div class="field" style="max-width:180px"><div class="field-label">Max range (nm)</div><input type="number" id="recv-range" min="50" max="800" value="500"></div>
+            <div class="field" style="max-width:180px"><label class="field-label" for="recv-range">Max range (nm)</label><input type="number" id="recv-range" min="50" max="800" value="500"></div>
             <div class="btn-row">
-              <button class="btn btn-primary" onclick="saveReceiver(event)"><i class="ti ti-device-floppy"></i> Save &amp; restart readsb</button>
-              <span class="toast" id="recv-toast"></span>
+              <button class="btn btn-primary" onclick="saveReceiver(event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save &amp; restart readsb</button>
+              <span class="toast" role="status" id="recv-toast"></span>
             </div>
           </div>
         </div>
 
         <!-- 1090 SDR (RTL-SDR via readsb) -->
         <div class="scard hidden" id="sdr1090-card">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> 1090 SDR (RTL-SDR)<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon" aria-hidden="true"></i> 1090 SDR (RTL-SDR)<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div class="field" style="max-width:220px">
-              <div class="field-label">Gain</div>
+              <label class="field-label" for="sdr1090-gain">Gain</label>
               <select id="sdr1090-gain"></select>
               <div class="field-hint">'auto' = readsb adaptive gain, or pick a supported R820T dB step.</div>
             </div>
@@ -486,18 +555,18 @@
               <span><strong>Bias-tee</strong> — feed 4.5V to power an inline LNA</span>
             </label>
             <div class="btn-row">
-              <button class="btn btn-primary" onclick="saveSdr('1090',event)"><i class="ti ti-device-floppy"></i> Save &amp; restart readsb</button>
-              <span class="toast" id="sdr1090-toast"></span>
+              <button class="btn btn-primary" onclick="saveSdr('1090',event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save &amp; restart readsb</button>
+              <span class="toast" role="status" id="sdr1090-toast"></span>
             </div>
           </div>
         </div>
 
         <!-- 978 SDR (RTL-SDR via dump978) -->
         <div class="scard hidden" id="sdr978-card">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon"></i> 978 SDR (UAT / dump978)<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon" aria-hidden="true"></i> 978 SDR (UAT / dump978)<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div class="field" style="max-width:220px">
-              <div class="field-label">Gain</div>
+              <label class="field-label" for="sdr978-gain">Gain</label>
               <select id="sdr978-gain"></select>
               <div class="field-hint">dump978 has no adaptive auto; 'max' = full gain (default), or pick a supported R820T dB step.</div>
             </div>
@@ -506,15 +575,15 @@
               <span><strong>Bias-tee</strong> — feed 4.5V to power an inline LNA</span>
             </label>
             <div class="btn-row">
-              <button class="btn btn-primary" onclick="saveSdr('978',event)"><i class="ti ti-device-floppy"></i> Save &amp; restart dump978</button>
-              <span class="toast" id="sdr978-toast"></span>
+              <button class="btn btn-primary" onclick="saveSdr('978',event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save &amp; restart dump978</button>
+              <span class="toast" role="status" id="sdr978-toast"></span>
             </div>
           </div>
         </div>
 
         <!-- Aircraft type breakdown -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-chart-donut icon"></i> Aircraft type breakdown<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-chart-donut icon" aria-hidden="true"></i> Aircraft type breakdown<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body" id="ac-types-body">
             <div style="font-size:12px;color:var(--text3)">Loading...</div>
           </div>
@@ -522,7 +591,7 @@
 
         <!-- Uptime history -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-calendar-stats icon"></i> 7-day uptime history<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-calendar-stats icon" aria-hidden="true"></i> 7-day uptime history<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body" id="uptime-history-body">
             <div style="font-size:12px;color:var(--text3)">Loading...</div>
           </div>
@@ -530,7 +599,7 @@
 
         <!-- readsb stats -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-broadcast icon"></i> readsb statistics<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-broadcast icon" aria-hidden="true"></i> readsb statistics<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body" id="readsb-stats-body">
             <div style="font-size:12px;color:var(--text3)">Loading...</div>
           </div>
@@ -538,7 +607,7 @@
 
         <!-- Feeder connection settings -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-plug icon"></i> Feeder connection settings<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-plug icon" aria-hidden="true"></i> Feeder connection settings<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body" id="feeder-settings-body">
             <div style="font-size:12px;color:var(--text3)">Loading...</div>
           </div>
@@ -546,7 +615,7 @@
 
         <!-- Feeder list -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-list icon"></i> Feeder list (sidebar entries)<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-list icon" aria-hidden="true"></i> Feeder list (sidebar entries)<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body" style="padding:0;gap:0;">
             <table class="feeder-table">
               <thead><tr>
@@ -556,45 +625,45 @@
               <tbody id="feeder-rows"></tbody>
             </table>
             <div class="add-row">
-              <div class="field"><div class="field-label" style="font-size:10px">Type</div><select id="new-kind"><option value="service">service</option><option value="docker">docker</option></select></div>
-              <div class="field"><div class="field-label" style="font-size:10px">Service/Container</div><input type="text" id="new-key" placeholder="fr24feed"></div>
-              <div class="field"><div class="field-label" style="font-size:10px">Label</div><input type="text" id="new-label" placeholder="FlightRadar24"></div>
-              <div class="field"><div class="field-label" style="font-size:10px">Hint</div><input type="text" id="new-hint" placeholder="Beast in ← :30005"></div>
-              <div class="field"><div class="field-label" style="font-size:10px">Icon</div><input type="text" id="new-icon" placeholder="plane"></div>
-              <button class="btn btn-success" onclick="addFeederRow()" style="padding:7px 10px;align-self:flex-end"><i class="ti ti-plus"></i></button>
+              <div class="field"><label class="field-label" style="font-size:10px" for="new-kind">Type</label><select id="new-kind"><option value="service">service</option><option value="docker">docker</option></select></div>
+              <div class="field"><label class="field-label" style="font-size:10px" for="new-key">Service/Container</label><input type="text" id="new-key" placeholder="fr24feed"></div>
+              <div class="field"><label class="field-label" style="font-size:10px" for="new-label">Label</label><input type="text" id="new-label" placeholder="FlightRadar24"></div>
+              <div class="field"><label class="field-label" style="font-size:10px" for="new-hint">Hint</label><input type="text" id="new-hint" placeholder="Beast in ← :30005"></div>
+              <div class="field"><label class="field-label" style="font-size:10px" for="new-icon">Icon</label><input type="text" id="new-icon" placeholder="plane"></div>
+              <button class="btn btn-success" onclick="addFeederRow()" style="padding:7px 10px;align-self:flex-end"><i class="ti ti-plus" aria-hidden="true"></i></button>
             </div>
             <div style="padding:.75rem 1rem;border-top:.5px solid var(--border);display:flex;gap:8px;align-items:center;">
-              <button class="btn btn-primary" onclick="saveFeeders(event)"><i class="ti ti-device-floppy"></i> Save feeder list</button>
-              <span class="toast" id="feeders-toast"></span>
+              <button class="btn btn-primary" onclick="saveFeeders(event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save feeder list</button>
+              <span class="toast" role="status" id="feeders-toast"></span>
             </div>
           </div>
         </div>
 
         <!-- Service control -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-refresh icon"></i> Service control<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-refresh icon" aria-hidden="true"></i> Service control<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div class="btn-row" id="restart-btns"></div>
             <div class="btn-row" style="margin-top:4px">
-              <button class="btn btn-secondary" onclick="refreshVersions(event)"><i class="ti ti-refresh"></i> Check for updates now</button>
-              <span class="toast" id="versions-toast"></span>
+              <button class="btn btn-secondary" onclick="refreshVersions(event)"><i class="ti ti-refresh" aria-hidden="true"></i> Check for updates now</button>
+              <span class="toast" role="status" id="versions-toast"></span>
             </div>
             <div class="btn-row" style="margin-top:4px">
-              <button class="btn btn-secondary" onclick="downloadBackup()"><i class="ti ti-download"></i> Download config</button>
-              <button class="btn btn-secondary" onclick="downloadGraphs()"><i class="ti ti-chart-line"></i> Download graph data</button>
+              <button class="btn btn-secondary" onclick="downloadBackup()"><i class="ti ti-download" aria-hidden="true"></i> Download config</button>
+              <button class="btn btn-secondary" onclick="downloadGraphs()"><i class="ti ti-chart-line" aria-hidden="true"></i> Download graph data</button>
               <input type="file" id="import-config-file" accept=".zip" style="display:none" onchange="importBackup('config',this)">
-              <button class="btn btn-secondary" onclick="document.getElementById('import-config-file').click()"><i class="ti ti-upload"></i> Import config</button>
+              <button class="btn btn-secondary" onclick="document.getElementById('import-config-file').click()"><i class="ti ti-upload" aria-hidden="true"></i> Import config</button>
               <input type="file" id="import-graphs-file" accept=".zip" style="display:none" onchange="importBackup('graphs',this)">
-              <button class="btn btn-secondary" onclick="document.getElementById('import-graphs-file').click()"><i class="ti ti-upload"></i> Import graph data</button>
-              <span class="toast" id="backup-toast"></span>
+              <button class="btn btn-secondary" onclick="document.getElementById('import-graphs-file').click()"><i class="ti ti-upload" aria-hidden="true"></i> Import graph data</button>
+              <span class="toast" role="status" id="backup-toast"></span>
             </div>
-            <span class="toast" id="restart-toast"></span>
+            <span class="toast" role="status" id="restart-toast"></span>
           </div>
         </div>
 
         <!-- System log -->
         <div class="scard">
-          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-terminal-2 icon"></i> System log<i class="ti ti-chevron-down chevron"></i></div>
+          <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-terminal-2 icon" aria-hidden="true"></i> System log<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body" style="padding:0;gap:0;">
             <div class="sys-term-wrap">
               <div class="terminal" id="sys-terminal"></div>
@@ -602,9 +671,9 @@
                 <div class="status-dot inactive" id="sys-status-dot"></div>
                 <span id="sys-status-text">Idle</span>
                 <span style="margin-left:auto;display:flex;gap:8px;">
-                  <button class="modal-btn" onclick="copyLogs('sys-terminal',this)"><i class="ti ti-copy"></i> Copy</button>
-                  <button class="modal-btn" onclick="clearSysLog()"><i class="ti ti-eraser"></i> Clear</button>
-                  <button class="modal-btn" onclick="openSysLog()"><i class="ti ti-refresh"></i> Reconnect</button>
+                  <button class="modal-btn" onclick="copyLogs('sys-terminal',this)"><i class="ti ti-copy" aria-hidden="true"></i> Copy</button>
+                  <button class="modal-btn" onclick="clearSysLog()"><i class="ti ti-eraser" aria-hidden="true"></i> Clear</button>
+                  <button class="modal-btn" onclick="openSysLog()"><i class="ti ti-refresh" aria-hidden="true"></i> Reconnect</button>
                 </span>
               </div>
             </div>
@@ -614,7 +683,7 @@
       </div>
     </div>
   </div>
-</div>
+</main>
 
 <script>
 // All client logic. Vanilla JS, no framework. Roughly: theme handling, rendering
@@ -692,20 +761,20 @@ function makeCard(f) {
   if (CORE_KEYS.includes(f.key)) {  // version only matters for core services, not feeders
     if (f.version) {
       const vs = f.version.startsWith('v')?f.version:'v'+f.version;
-      const upd = f.outdated?`<span class="update-badge" title="Latest: ${f.latest||''}">⬆ update</span>`:'';
+      const upd = f.outdated?`<span class="update-badge" title="Latest: ${f.latest||''}"><i class="ti ti-arrow-up" aria-hidden="true"></i> update</span>`:'';
       ver=`<span class="version-tag">${vs}</span>${upd}`;
     } else if (f.version === null) {
       ver=`<span class="version-tag" style="color:var(--text3)">checking...</span>`;
     }
   }
-  if (f.uptime_str) uptime=`<span class="uptime-tag" title="Running for"><i class="ti ti-clock" style="font-size:10px"></i> ${f.uptime_str}</span>`;
+  if (f.uptime_str) uptime=`<span class="uptime-tag" title="Running for"><i class="ti ti-clock" style="font-size:10px" aria-hidden="true"></i> ${f.uptime_str}</span>`;
   if (f.uptime_pct !== null && f.uptime_pct !== undefined) {
     const cls = uptimePctClass(f.uptime_pct);
     uptime += `<span class="uptime-pct ${cls}" title="7-day uptime">${f.uptime_pct}%</span>`;
   }
   if (f.last_seen) {
     const live = f.last_seen === 'live';
-    lastSeen = `<span class="last-seen${live?' live':''}" title="Last feed activity">${live?'● live':f.last_seen}</span>`;
+    lastSeen = `<span class="last-seen${live?' live':''}" title="Last feed activity">${live?'<i class="ti ti-point-filled" aria-hidden="true"></i> live':esc(f.last_seen)}</span>`;
   }
   // Compact uptime bars (7 days)
   let uptimeBars = '';
@@ -716,16 +785,21 @@ function makeCard(f) {
       const tip = pct !== null ? `${day}: ${pct}% uptime` : `${day}: no data`;
       return `<div class="cub ${cls}" title="${tip}"></div>`;
     }).join('');
-    uptimeBars = `<div class="card-uptime-bars">${barHtml}</div>`;
+    const known = f.uptime_bars.filter(p => p !== null);
+    const good  = known.filter(p => p >= 95).length;
+    const summary = known.length
+      ? `7-day uptime: ${good} of ${known.length} days at or above 95%`
+      : '7-day uptime: no data recorded';
+    uptimeBars = `<div class="card-uptime-bars" role="img" aria-label="${summary}">${barHtml}</div>`;
   }
 
   return `<div class="card">
-    <div class="card-top"><span class="card-name"><i class="ti ti-${f.icon||'plug'}"></i>${f.label}</span><span class="badge ${bc}">${bt}</span></div>
+    <div class="card-top"><span class="card-name"><i class="ti ti-${f.icon||'plug'}" aria-hidden="true"></i>${f.label}</span><span class="badge ${bc}">${bt}</span></div>
     <div class="card-hint">${hint}</div>
     <div class="card-footer">
       <div class="card-meta">${ver}${uptime}${lastSeen}</div>
       <div class="card-actions">
-        ${IS_READONLY?'':`<button class="action-btn" onclick="openLogs('${f.key}','${f.label}')"><i class="ti ti-terminal-2"></i> logs</button>`}
+        ${IS_READONLY?'':`<button class="action-btn" onclick="openLogs('${f.key}','${f.label}')"><i class="ti ti-terminal-2" aria-hidden="true"></i> logs</button>`}
       </div>
     </div>
     ${uptimeBars}
@@ -733,6 +807,15 @@ function makeCard(f) {
 }
 
 let sparkAcData=[], sparkMsgData=[];
+
+let lastGoodPoll = null;
+
+// Single polite status region for the whole dashboard. Metrics update on a 30s
+// timer; without this a screen-reader user has no way to know anything changed.
+function announce(msg) {
+  const el=document.getElementById('sr-status');
+  if (el) el.textContent=msg;
+}
 
 async function load() {
   document.getElementById('ri').classList.add('spinning');
@@ -748,10 +831,19 @@ async function load() {
     document.getElementById('m-feed').textContent     = feed.filter(f=>f.status==='ok').length;
     document.getElementById('m-feed-sub').textContent = `of ${feed.length}`;
     buildRestartButtons(d.feeders);
+    announce(`${d.metrics.aircraft} aircraft, ${d.metrics.msg_rate} messages per second, `
+           + `${feed.filter(f=>f.status==='ok').length} of ${feed.length} feeders up.`);
+    lastGoodPoll = new Date();
+    document.getElementById('ts').textContent='Updated '+lastGoodPoll.toLocaleTimeString();
+    document.getElementById('ts').classList.remove('stale');
   } catch {
     document.getElementById('core-cards').innerHTML='<div class="error-msg">Cannot reach /api/status</div>';
+    const ts=document.getElementById('ts');
+    ts.textContent = lastGoodPoll
+      ? 'Stale — last update '+lastGoodPoll.toLocaleTimeString()
+      : 'Stale — no successful update yet';
+    ts.classList.add('stale');
   }
-  document.getElementById('ts').textContent='Updated '+new Date().toLocaleTimeString();
   document.getElementById('ri').classList.remove('spinning');
 
   // Alerts
@@ -846,7 +938,7 @@ async function loadAirspySignal() {
       const el  = document.getElementById('gain-rec');
       const btn = document.getElementById('gain-apply-btn');
       el.className = `gain-rec ${rec.action}`;
-      el.innerHTML = `<i class="ti ti-${rec.action==='ok'?'check':'alert-triangle'}"></i> ${rec.reason}`;
+      el.innerHTML = `<i class="ti ti-${rec.action==='ok'?'check':'alert-triangle'}" aria-hidden="true"></i> ${rec.reason}`;
       el.classList.remove('hidden');
       if (rec.action !== 'ok') {
         // Extract suggested gain from reason string e.g. "try gain 19"
@@ -855,7 +947,7 @@ async function loadAirspySignal() {
           _gainRecommendedValue = parseInt(m[1]);
           btn.classList.remove('hidden');
           btn.textContent = '';
-          btn.innerHTML = `<i class="ti ti-wand"></i> Apply: set gain to ${_gainRecommendedValue}`;
+          btn.innerHTML = `<i class="ti ti-wand" aria-hidden="true"></i> Apply: set gain to ${_gainRecommendedValue}`;
         }
       } else {
         _gainRecommendedValue = null;
@@ -906,7 +998,7 @@ async function applyRecommendedGain() {
       body: JSON.stringify(payload)
     }).then(r=>r.json());
     if (r.ok) {
-      document.getElementById('gain-rec').textContent = '✓ Gain updated — restarting airspy_adsb...';
+      document.getElementById('gain-rec').textContent = 'Gain updated — restarting airspy_adsb...';
       setTimeout(loadSignalStats, 5000);
     }
   } catch {}
@@ -921,9 +1013,9 @@ async function applyRecommendedGain() {
 
 const VIEWS = ['map','graphs','settings'];
 const TLABELS = {
-  map:      '<i class="ti ti-map-pin"></i> <span>tar1090 live map</span>',
-  graphs:   '<i class="ti ti-chart-line"></i> <span>Performance graphs</span>',
-  settings: '<i class="ti ti-settings"></i> <span>Settings</span>',
+  map:      '<i class="ti ti-map-pin" aria-hidden="true"></i> <span>tar1090 live map</span>',
+  graphs:   '<i class="ti ti-chart-line" aria-hidden="true"></i> <span>Performance graphs</span>',
+  settings: '<i class="ti ti-settings" aria-hidden="true"></i> <span>Settings</span>',
 };
 function showView(v) {
   if (v==='settings' && IS_READONLY) return;
@@ -973,8 +1065,17 @@ function toggleCard(header) {
 function showToast(id, ok, msg) {
   const el=document.getElementById(id);
   if (!el) return;
-  el.textContent=msg; el.className='toast '+(ok?'ok':'err');
-  setTimeout(()=>{el.className='toast';},3500);
+  // Call sites prefix the message with ✓/✗. Strip it and render the state as an
+  // icon: the glyph was read aloud literally ("check mark") by screen readers,
+  // and role="status" on the span now announces whatever textContent remains.
+  const text=String(msg).replace(/^[✓✗]\s*/,'');
+  const icon=ok?'ti-check':'ti-alert-triangle';
+  el.innerHTML=`<i class="ti ${icon}" aria-hidden="true" style="margin-right:4px"></i>${esc(text)}`;
+  el.className='toast '+(ok?'ok':'err');
+  // Errors stay until the next action — a 3.5s window is not enough to read a
+  // decoder's stderr, and it is the one message the user actually needs.
+  clearTimeout(el._t);
+  if (ok) el._t=setTimeout(()=>{el.className='toast';},3500);
 }
 
 let settingsLoaded=false;
@@ -1017,6 +1118,7 @@ async function loadSettings() {
 
 async function loadAircraftTypes() {
   const body = document.getElementById('ac-types-body');
+  body.innerHTML = skeleton(4);
   try {
     const d = await fetch('/api/stats/aircraft_types').then(r=>r.json());
     const total = d.adsb + d.mlat + d.mode_s + d.tisb + d.other || 1;
@@ -1043,11 +1145,12 @@ async function loadAircraftTypes() {
     const svg=`<svg viewBox="0 0 100 100" width="80" height="80">${arcs}<text x="50" y="47" text-anchor="middle" font-size="11" fill="var(--text)" font-weight="500">${total}</text><text x="50" y="59" text-anchor="middle" font-size="8" fill="var(--text3)">total</text></svg>`;
     const legend=types.map(t=>`<div class="type-row"><div class="type-dot" style="background:${t.color}"></div>${t.label}<span class="type-val">${t.val} <span style="color:var(--text3);font-weight:400">(${Math.round(t.val/total*100)}%)</span></span></div>`).join('');
     body.innerHTML=`<div class="type-wrap">${svg}<div class="type-legend">${legend}</div></div>`;
-  } catch{body.innerHTML='<div style="font-size:12px;color:var(--text3)">Could not load</div>';}
+  } catch{body.innerHTML=panelError('Could not load aircraft types','loadAircraftTypes');}
 }
 
 async function loadUptimeHistory() {
   const body = document.getElementById('uptime-history-body');
+  body.innerHTML = skeleton(3);
   try {
     const d = await fetch('/api/stats/uptime/history').then(r=>r.json());
     const rows = Object.entries(d).map(([key, days]) => {
@@ -1069,7 +1172,7 @@ async function loadUptimeHistory() {
     }).join('');
     // Day labels
     const firstDays = Object.values(d)[0] || [];
-    const dayLabels = firstDays.map(d=>`<div style="flex:1;text-align:center;font-size:9px;color:var(--text3)">${d.day}</div>`).join('');
+    const dayLabels = firstDays.map(d=>`<div style="flex:1;text-align:center;font-size:10px;color:var(--text3)">${d.day}</div>`).join('');
     body.innerHTML=`
       <div style="display:flex;margin-left:138px;gap:2px;margin-bottom:4px;">${dayLabels}</div>
       <div class="uptime-timeline">${rows}</div>
@@ -1078,7 +1181,7 @@ async function loadUptimeHistory() {
         <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--err-text);opacity:.7;margin-right:3px"></span>Down</span>
         <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--surface3);margin-right:3px"></span>No data</span>
       </div>`;
-  } catch{body.innerHTML='<div style="font-size:12px;color:var(--text3)">Could not load uptime history</div>';}
+  } catch{body.innerHTML=panelError('Could not load uptime history','loadUptimeHistory');}
 }
 
 function downloadBackup() {
@@ -1106,6 +1209,7 @@ async function importBackup(kind,input){
 
 async function loadReadsbStats() {
   const body=document.getElementById('readsb-stats-body');
+  body.innerHTML = skeleton(4);
   try {
     const s=await fetch('/api/stats/readsb').then(r=>r.json());
     body.innerHTML=`<div class="stats-grid">
@@ -1116,7 +1220,7 @@ async function loadReadsbStats() {
       <div class="stat-box"><div class="stat-box-label">Total positions</div><div class="stat-box-value">${(s.positions_total/1e6)?.toFixed(1)||'—'}M</div></div>
       <div class="stat-box"><div class="stat-box-label">Uptime</div><div class="stat-box-value">${s.uptime_hrs||'—'}h</div></div>
     </div>`;
-  } catch{body.innerHTML='<div style="font-size:12px;color:var(--text3)">Could not load stats</div>';}
+  } catch{body.innerHTML=panelError('Could not load readsb stats','loadReadsbStats');}
 }
 
 let _recommendedRate='6';
@@ -1197,7 +1301,7 @@ async function refreshVersions(e){
 async function loadFeederConfigs(){
   const body=document.getElementById('feeder-settings-body');
   let feeders=[];
-  try{const d=await fetch('/api/status').then(r=>r.json());feeders=d.feeders;}catch{body.innerHTML='<div class="error-msg">Could not load feeders</div>';return;}
+  try{const d=await fetch('/api/status').then(r=>r.json());feeders=d.feeders;}catch{body.innerHTML=panelError('Could not load feeders','loadFeederConfigs');return;}
   const html=[];
   for(const f of feeders){
     let fields=null,settings={},label=f.label;
@@ -1205,18 +1309,18 @@ async function loadFeederConfigs(){
     if(r.ok){fields=r.fields;settings=r.settings;label=r.label;}}catch{}
     const panelId=`fcfg-${f.key}`,toastId=`fcfg-toast-${f.key}`;
     if(!fields){
-      html.push(`<div><div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:12px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:6px;"><i class="ti ti-${f.icon||'plug'}" style="font-size:13px"></i>${f.label}</div><span style="font-size:11px;color:var(--text3)">No config available</span></div></div>`);
+      html.push(`<div><div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:12px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:6px;"><i class="ti ti-${f.icon||'plug'}" style="font-size:13px" aria-hidden="true"></i>${f.label}</div><span style="font-size:11px;color:var(--text3)">No config available</span></div></div>`);
     }else{
       html.push(`<div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-          <div style="font-size:12px;font-weight:500;color:var(--text);display:flex;align-items:center;gap:6px;"><i class="ti ti-${f.icon||'plug'}" style="font-size:13px;color:var(--text2)"></i>${label}</div>
-          <button class="cfg-btn" onclick="toggleFeederCfg('${panelId}',this)"><i class="ti ti-settings"></i> configure</button>
+          <div style="font-size:12px;font-weight:500;color:var(--text);display:flex;align-items:center;gap:6px;"><i class="ti ti-${f.icon||'plug'}" style="font-size:13px;color:var(--text2)" aria-hidden="true"></i>${label}</div>
+          <button class="cfg-btn" onclick="toggleFeederCfg('${panelId}',this)"><i class="ti ti-settings" aria-hidden="true"></i> configure</button>
         </div>
         <div class="feeder-config-panel" id="${panelId}">
           ${renderFeederFields(f.key,fields,settings)}
           <div class="btn-row">
-            <button class="btn btn-primary" onclick="saveFeederCfg('${f.key}','${panelId}','${toastId}',event)"><i class="ti ti-device-floppy"></i> Save &amp; restart</button>
-            <span class="toast" id="${toastId}"></span>
+            <button class="btn btn-primary" onclick="saveFeederCfg('${f.key}','${panelId}','${toastId}',event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save &amp; restart</button>
+            <span class="toast" role="status" id="${toastId}"></span>
           </div>
         </div>
       </div>`);
@@ -1239,13 +1343,13 @@ function renderFeederFields(key,fields,settings){
 function renderField(key,f,value){
   const fid=`fcfg-${key}-${f.key}`,ro=f.readonly?'readonly':'';
   const hint=f.readonly?'<div class="field-hint">Read-only</div>':'';
-  if(f.type==='password')return`<div class="field"><div class="field-label">${f.label}</div><div class="input-wrap"><input type="password" id="${fid}" value="${esc(value)}" ${ro}><button class="eye-btn" onclick="toggleReveal('${fid}',this)"><i class="ti ti-eye"></i></button></div>${hint}</div>`;
-  if(f.type==='select'){const opts=(f.options||[]).map(o=>`<option value="${o}"${value===o?' selected':''}>${o}</option>`).join('');return`<div class="field"><div class="field-label">${f.label}</div><select id="${fid}">${opts}</select>${hint}</div>`;}
-  return`<div class="field"><div class="field-label">${f.label}</div><input type="text" id="${fid}" value="${esc(value)}" ${ro}>${hint}</div>`;
+  if(f.type==='password')return`<div class="field"><label class="field-label" for="${fid}">${f.label}</label><div class="input-wrap"><input type="password" id="${fid}" value="${esc(value)}" ${ro}><button class="eye-btn" onclick="toggleReveal('${fid}',this)"><i class="ti ti-eye" aria-hidden="true"></i></button></div>${hint}</div>`;
+  if(f.type==='select'){const opts=(f.options||[]).map(o=>`<option value="${o}"${value===o?' selected':''}>${o}</option>`).join('');return`<div class="field"><label class="field-label" for="${fid}">${f.label}</label><select id="${fid}">${opts}</select>${hint}</div>`;}
+  return`<div class="field"><label class="field-label" for="${fid}">${f.label}</label><input type="text" id="${fid}" value="${esc(value)}" ${ro}>${hint}</div>`;
 }
 
 function toggleReveal(inputId,btn){const inp=document.getElementById(inputId);const showing=inp.type==='text';inp.type=showing?'password':'text';btn.querySelector('i').className=showing?'ti ti-eye':'ti ti-eye-off';}
-function toggleFeederCfg(panelId,btn){const panel=document.getElementById(panelId);const open=panel.classList.toggle('open');btn.innerHTML=open?'<i class="ti ti-chevron-up"></i> collapse':'<i class="ti ti-settings"></i> configure';}
+function toggleFeederCfg(panelId,btn){const panel=document.getElementById(panelId);const open=panel.classList.toggle('open');btn.innerHTML=open?'<i class="ti ti-chevron-up" aria-hidden="true"></i> collapse':'<i class="ti ti-settings" aria-hidden="true"></i> configure';}
 
 async function saveFeederCfg(key,panelId,toastId,e){
   const btn=e.target.closest('button');btn.disabled=true;
@@ -1265,6 +1369,19 @@ async function saveFeederCfg(key,panelId,toastId,e){
 // ───────────────────────────────────────────────────────────────────────────
 
 let feederData=[];
+// ── D4: panel loading / failure states ──
+// Every data panel used to show nothing while fetching and a dead grey string on
+// failure. skeleton() reserves the row height (so the panel doesn't jump when
+// data lands) and panelError() gives the user a way out.
+function skeleton(rows) {
+  return `<div class="skel">${'<div class="skel-row"></div>'.repeat(rows||3)}</div>`;
+}
+function panelError(msg, retryFn) {
+  return `<div class="panel-error"><span>${esc(msg)}</span>`
+       + `<button class="action-btn" onclick="${retryFn}()">`
+       + `<i class="ti ti-refresh" aria-hidden="true"></i> Retry</button></div>`;
+}
+
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 async function loadFeedersTable(){
   try{const r=await fetch('/api/settings/feeders').then(r=>r.json());feederData=r.feeders;renderFeedersTable();}catch{}
@@ -1276,7 +1393,7 @@ function renderFeedersTable(){
     <td><input type="text" value="${esc(f.label)}" onchange="feederData[${i}].label=this.value"></td>
     <td><input type="text" value="${esc(f.hint)}"  onchange="feederData[${i}].hint=this.value"></td>
     <td><input type="text" value="${esc(f.icon)}"  onchange="feederData[${i}].icon=this.value" placeholder="plug"></td>
-    <td><button class="btn btn-danger" style="padding:3px 7px" onclick="removeFeeder(${i})"><i class="ti ti-trash"></i></button></td>
+    <td><button class="btn btn-danger" style="padding:3px 7px" onclick="removeFeeder(${i})"><i class="ti ti-trash" aria-hidden="true"></i></button></td>
   </tr>`).join('');
 }
 function removeFeeder(i){feederData.splice(i,1);renderFeedersTable();}
@@ -1301,9 +1418,15 @@ async function saveFeeders(e){
 function buildRestartButtons(feeders){
   const c=document.getElementById('restart-btns');
   if(c.children.length>0)return;
-  c.innerHTML=feeders.map(f=>`<button class="btn btn-secondary" onclick="restartService('${f.key}','${f.label}',this)"><i class="ti ti-refresh"></i> ${f.label}</button>`).join('');
+  c.innerHTML=feeders.map(f=>`<button class="btn btn-secondary" onclick="restartService('${f.key}','${f.label}',this)"><i class="ti ti-refresh" aria-hidden="true"></i> ${f.label}</button>`).join('');
 }
+const DECODERS = ['readsb','airspy_adsb','dump978-fa'];
 async function restartService(key,label,btn){
+  if (DECODERS.includes(key) &&
+      !confirm(`Restart ${label}?
+
+This drops the live feed for a few seconds — `
+             + `aircraft currently tracked will disappear from the map until it reconnects.`)) return;
   btn.disabled=true;
   try{const r=await fetch(`/api/service/${encodeURIComponent(key)}/restart`,{method:'POST'}).then(r=>r.json());
   showToast('restart-toast',r.ok,r.ok?`✓ ${label} restarted`:`✗ ${r.error}`);}catch(ex){showToast('restart-toast',false,'✗ '+ex.message);}
@@ -1320,13 +1443,36 @@ async function restartService(key,label,btn){
 let activeSSE=null,autoScroll=true;
 function classifyLine(l){const s=l.toLowerCase();if(/error|fatal|failed|failure|crit/.test(s))return 'err';if(/warn|warning/.test(s))return 'warn';if(/started|success|running|active|connected|ok/.test(s))return 'ok';if(/^\s*$/.test(l))return 'dim';return '';}
 function appendLine(text){const term=document.getElementById('terminal');const div=document.createElement('div');div.className='log-line '+classifyLine(text);div.textContent=text;term.appendChild(div);while(term.children.length>500)term.removeChild(term.firstChild);if(autoScroll)term.scrollTop=term.scrollHeight;}
-function openLogs(key,label){closeModal();document.getElementById('modal-title-text').textContent=label+' — logs';document.getElementById('terminal').innerHTML='';document.getElementById('status-text').textContent='Connecting...';document.getElementById('status-dot').className='status-dot inactive';document.getElementById('modal').classList.add('open');autoScroll=true;const term=document.getElementById('terminal');term.onscroll=()=>{autoScroll=term.scrollTop+term.clientHeight>=term.scrollHeight-20;};const es=new EventSource(`/api/logs/${encodeURIComponent(key)}`);activeSSE=es;es.onopen=()=>{document.getElementById('status-dot').className='status-dot';document.getElementById('status-text').textContent=`Streaming: ${label}`;};es.onmessage=e=>{try{appendLine(JSON.parse(e.data));}catch{appendLine(e.data);}};es.onerror=()=>{document.getElementById('status-dot').className='status-dot inactive';document.getElementById('status-text').textContent='Stream closed';es.close();};}
-function closeModal(){if(activeSSE){activeSSE.close();activeSSE=null;}document.getElementById('modal').classList.remove('open');}
+function openLogs(key,label){closeModal();document.getElementById('modal-title-text').textContent=label+' — logs';document.getElementById('terminal').innerHTML='';document.getElementById('status-text').textContent='Connecting...';document.getElementById('status-dot').className='status-dot inactive';document.getElementById('modal').classList.add('open');lastFocused=document.activeElement;document.querySelector('#modal .modal').focus();autoScroll=true;const term=document.getElementById('terminal');term.onscroll=()=>{autoScroll=term.scrollTop+term.clientHeight>=term.scrollHeight-20;};const es=new EventSource(`/api/logs/${encodeURIComponent(key)}`);activeSSE=es;es.onopen=()=>{document.getElementById('status-dot').className='status-dot';document.getElementById('status-text').textContent=`Streaming: ${label}`;};es.onmessage=e=>{try{appendLine(JSON.parse(e.data));}catch{appendLine(e.data);}};es.onerror=()=>{document.getElementById('status-dot').className='status-dot inactive';document.getElementById('status-text').textContent='Stream closed';es.close();};}
+function closeModal(){
+  if(activeSSE){activeSSE.close();activeSSE=null;}
+  document.getElementById('modal').classList.remove('open');
+  // Return focus to whatever opened the dialog, or the keyboard user is dumped
+  // at the top of the document with no idea where they were.
+  if(lastFocused&&document.contains(lastFocused)){lastFocused.focus();}
+  lastFocused=null;
+}
+
+let lastFocused=null;
+
+// Escape closes, Tab cycles inside. The file had no keydown handling at all, so
+// the overlay could only be dismissed with a mouse.
+document.addEventListener('keydown',e=>{
+  const modal=document.getElementById('modal');
+  if(!modal.classList.contains('open'))return;
+  if(e.key==='Escape'){e.preventDefault();closeModal();return;}
+  if(e.key!=='Tab')return;
+  const f=modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if(!f.length)return;
+  const first=f[0], last=f[f.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+});
 function closeModalOnOverlay(e){if(e.target===document.getElementById('modal'))closeModal();}
 function copyLogs(termId,btn){
   const t=document.getElementById(termId); if(!t) return;
   const text=t.innerText;
-  const done=ok=>{const o=btn.innerHTML;btn.innerHTML='<i class="ti ti-'+(ok?'check':'x')+'"></i> '+(ok?'Copied':'Failed');setTimeout(()=>btn.innerHTML=o,1500);};
+  const done=ok=>{const o=btn.innerHTML;btn.innerHTML='<i class="ti ti-'+(ok?'check':'x')+'" aria-hidden="true"></i> '+(ok?'Copied':'Failed');setTimeout(()=>btn.innerHTML=o,1500);};
   if(navigator.clipboard&&navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false));
   }else{

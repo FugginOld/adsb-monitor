@@ -68,7 +68,13 @@ for target in $TARGETS; do
       rm -rf "$DEST/system" "$DEST/routes"
       cp -r "$SCRIPT_DIR/../system" "$DEST/system"
       cp -r "$SCRIPT_DIR/../routes" "$DEST/routes"
-      cp "$SCRIPT_DIR/../static/index.html" "$DEST/static/index.html"
+      # static/ is now a tree, not one file: the Tabler icon font is vendored under
+      # static/vendor/ so the dashboard's icons work on an offline/firewalled box.
+      # Same rm -rf-then-copy rule as system/ and routes/ — a plain `cp -r static
+      # $DEST/static` nests a copy inside the existing dir on every deploy after
+      # the first, and stale files are left behind.
+      rm -rf "$DEST/static"
+      cp -r "$SCRIPT_DIR/../static" "$DEST/static"
       # Refresh venv deps in case requirements changed
       "$DEST/venv/bin/pip" install --quiet --upgrade flask psutil 2>/dev/null
       # One-time migration: older installs point systemd straight at app.py,
