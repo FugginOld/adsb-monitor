@@ -23,9 +23,17 @@ if [ "${1:-}" = "--all" ]; then
   TARGETS="airspy readsb graphs1090 monitor"
 else
   ensure_tui
+  # whiptail --checklist has no disabled row, so a host with no Airspy gets the
+  # entry pre-unchecked and labelled instead of greyed out. Same detection the
+  # airspy case below uses, so the menu can't disagree with what the run does.
+  if systemctl list-unit-files | grep -q airspy_adsb; then
+    AIRSPY_DESC="airspy_adsb decoder binary"; AIRSPY_STATE=ON
+  else
+    AIRSPY_DESC="airspy_adsb decoder binary (not installed)"; AIRSPY_STATE=OFF
+  fi
   TARGETS=$(whiptail --title "Update ADS-B Stack" --checklist \
 "Choose components to UPDATE (SPACE toggles):" 16 70 5 \
-"airspy"     "airspy_adsb decoder binary" ON \
+"airspy"     "$AIRSPY_DESC" "$AIRSPY_STATE" \
 "readsb"     "readsb + tar1090" ON \
 "graphs1090" "graphs1090" ON \
 "monitor"    "adsb-monitor (from this folder)" ON \
@@ -37,24 +45,50 @@ fi
 clear
 info "Updating: $TARGETS"
 
+# ── Upstream installer runner ───────────────────────────────────────────────
+# Fetch to a file, then run it. Replaces `bash -c "$(wget -O - URL)"`, which had
+# two defects:
+#   - a failed download expands to an empty string and `bash -c ''` exits 0, so
+#     a network blip reported "updated" while nothing had been installed;
+#   - output went to /dev/null, so a genuine build failure printed "update
+#     failed" and discarded every clue as to why.
+# The log keeps a normal run as quiet as before; the tail is shown only on
+# failure, where the noise is the point.
+# ────────────────────────────────────────────────────────────────────────────
+UPDATE_LOG=$(mktemp /tmp/adsb-update-XXXXXX.log)
+
+run_upstream() {   # run_upstream <label> <url>
+  local label="$1" url="$2" script rc
+  script=$(mktemp) || { warn "$label update failed — mktemp failed"; return 1; }
+  if ! curl -fsSL -o "$script" "$url" || [ ! -s "$script" ]; then
+    warn "$label update failed — could not fetch $url"
+    rm -f "$script"; return 1
+  fi
+  printf '\n===== %s =====\n' "$label" >> "$UPDATE_LOG"
+  bash "$script" >> "$UPDATE_LOG" 2>&1; rc=$?
+  rm -f "$script"
+  [ "$rc" -eq 0 ] && { ok "$label updated"; return 0; }
+  warn "$label update failed (exit $rc) — last 20 lines:"
+  tail -n 20 "$UPDATE_LOG" >&2
+  warn "full log: $UPDATE_LOG"
+  return 1
+}
+
 for target in $TARGETS; do
   case "$target" in
     airspy)
       if systemctl list-unit-files | grep -q airspy_adsb; then
         info "Updating airspy_adsb..."
-        bash -c "$(wget -O - https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/update-binary.sh)" >/dev/null 2>&1 && \
-          ok "airspy_adsb updated" || warn "airspy_adsb update failed"
+        run_upstream "airspy_adsb" "https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/update-binary.sh"
       else
         warn "airspy_adsb not installed, skipping"
       fi ;;
     readsb)
       info "Updating readsb + tar1090..."
-      bash -c "$(wget -q -O - https://raw.githubusercontent.com/wiedehopf/adsb-scripts/master/readsb-install.sh)" >/dev/null 2>&1 && \
-        ok "readsb + tar1090 updated" || warn "readsb update failed" ;;
+      run_upstream "readsb + tar1090" "https://raw.githubusercontent.com/wiedehopf/adsb-scripts/master/readsb-install.sh" ;;
     graphs1090)
       info "Updating graphs1090..."
-      bash -c "$(curl -L -o - https://github.com/wiedehopf/graphs1090/raw/master/install.sh)" >/dev/null 2>&1 && \
-        ok "graphs1090 updated" || warn "graphs1090 update failed" ;;
+      run_upstream "graphs1090" "https://github.com/wiedehopf/graphs1090/raw/master/install.sh" ;;
     monitor)
       info "Updating adsb-monitor..."
       DEST=/opt/adsb-monitor
