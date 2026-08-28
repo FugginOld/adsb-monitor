@@ -34,6 +34,7 @@ from collections import namedtuple
 from typing import Any, cast
 
 import app
+from system.services import valid_unit_name
 
 logger = logging.getLogger(__name__)
 
@@ -272,8 +273,19 @@ def get_config_map() -> dict[str, dict[str, Any]]:
     return {f['key']: f for f in load_config()}
 
 def save_feeders(feeders: list[dict[str, Any]]) -> None:
+    """Write the sidebar feeder list back to feeders.ini.
+
+    `feeders` comes straight from request JSON. A key is a systemd unit or
+    docker container name that later reaches `systemctl <act> <key>` as root
+    via load_config() -> routes/services.py, so entries that are not valid
+    names are dropped here rather than trusted downstream - a newline in a
+    key would also forge extra INI sections.
+    """
     cfg = configparser.ConfigParser()
     for f in feeders:
+        if f.get('kind') not in ('service', 'docker') or not valid_unit_name(str(f.get('key', ''))):
+            logger.warning("Rejected feeder entry with invalid kind/key: %r", f.get('key'))
+            continue
         section = f'{f["kind"]}:{f["key"]}'
         cfg[section] = {'label': f.get('label', f['key']), 'hint': f.get('hint', ''), 'icon': f.get('icon', 'plug')}
     buf = io.StringIO()

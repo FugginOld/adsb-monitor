@@ -24,6 +24,7 @@ reached via `import app`.
 """
 from __future__ import annotations
 
+import logging
 import os
 
 import psutil
@@ -32,6 +33,8 @@ from typing import Any
 
 import app
 from system.services import systemd_status
+
+logger = logging.getLogger(__name__)
 
 
 def get_airspy_stats() -> dict[str, Any]:
@@ -81,8 +84,9 @@ def get_system_metrics() -> dict[str, Any]:
         metrics['disk_pct']  = round(du.used / du.total * 100, 1)
         metrics['disk_used'] = round(du.used / 1024 / 1024 / 1024, 1)
         metrics['disk_total']= round(du.total / 1024 / 1024 / 1024, 1)
-    except Exception as e:
-        metrics['error'] = str(e)
+    except Exception:
+        logger.exception("Failed to collect system metrics")
+        metrics['error'] = 'metrics unavailable'
     return metrics
 
 def get_readsb_deep_stats() -> dict[str, Any]:

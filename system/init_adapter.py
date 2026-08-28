@@ -19,10 +19,13 @@ reports "service control unavailable".
 """
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class Result:
@@ -38,8 +41,11 @@ class LinuxHost:
         try:
             r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
             return Result(r.returncode, r.stdout, r.stderr)
-        except Exception as e:
-            return Result(1, '', str(e))
+        except Exception:
+            # debug, not exception: detect_init deliberately probes for
+            # binaries that are absent on this host, so a miss is expected.
+            logger.debug("Command failed: %s", cmd[0] if cmd else '', exc_info=True)
+            return Result(1, '', 'command failed')
     def read_text(self, path: str) -> str | None:
         try:
             with open(path) as f:

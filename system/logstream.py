@@ -11,11 +11,14 @@ looks dead. `_sse` is the one-line JSON framing helper.
 """
 from __future__ import annotations
 
+import logging
 import json
 import subprocess
 from typing import Any, Iterator
 
 import app
+
+logger = logging.getLogger(__name__)
 
 
 def _sse(text: str) -> str:
@@ -53,8 +56,9 @@ def stream_logs(cmd: list[str]) -> Iterator[str]:
             yield _sse(f'[stream ended — exit {code}; unit may have no journal or not exist]')
     except GeneratorExit:
         if proc: proc.kill()
-    except Exception as e:
-        yield _sse(f'[error] {e}')
+    except Exception:
+        logger.exception("Log stream failed")
+        yield _sse('[error] log stream failed')
     finally:
         if proc:
             try: proc.kill()

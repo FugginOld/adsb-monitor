@@ -59,3 +59,31 @@ def test_service_action_failure_returns_combined_output(fake_host):
 def test_service_action_records_the_call(fake_host):
     appmod.service_action('readsb', 'stop')
     assert ('run', ('systemctl', 'stop', 'readsb')) in fake_host.calls
+
+
+# ── unit-name validation (CodeQL py/command-line-injection, alert 28) ────────
+def test_service_action_rejects_names_outside_the_charset(fake_host):
+    for bad in ['readsb; rm -rf /', '../../etc/passwd', 'a b', '-x', '', 'a\nb']:
+        ok, msg = appmod.service_action(bad, 'restart')
+        assert (ok, msg) == (False, 'invalid service name'), bad
+    assert fake_host.calls == []
+
+def test_service_action_rejects_unknown_actions(fake_host):
+    ok, msg = appmod.service_action('readsb', 'mask')
+    assert (ok, msg) == (False, 'invalid action')
+    assert fake_host.calls == []
+
+def test_save_feeders_drops_entries_that_would_reach_systemctl(fake_host):
+    appmod.save_feeders([
+        {'kind': 'service', 'key': 'readsb'},
+        {'kind': 'service', 'key': 'evil; rm -rf /'},
+        {'kind': 'exec',    'key': 'readsb'},
+    ])
+    written = fake_host.files[appmod.CONFIG_FILE]
+    assert '[service:readsb]' in written
+    assert 'evil' not in written and 'exec' not in written
+
+def test_run_keeps_exception_text_out_of_the_response(caplog):
+    # py/stack-trace-exposure: Result.err is returned to the browser verbatim.
+    r = appmod.LinuxHost().run(['definitely-not-a-real-binary-xyz'])
+    assert not r.ok and r.err == 'command failed'
