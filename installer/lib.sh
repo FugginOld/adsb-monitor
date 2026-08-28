@@ -17,6 +17,40 @@ ok()   { echo -e "${GREEN}✓${NC} $1"; }
 warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 err()  { echo -e "${RED}✗${NC} $1"; }
 
+# ── Upstream installer runner ───────────────────────────────────────────────
+# Fetch an upstream install/update script to a file, then run it. Returns 0 on
+# success; the caller prints its own success line. Replaces
+# `bash -c "$(wget -O - URL)"`, which had two defects:
+#   - a failed download expands to an empty string and `bash -c ''` exits 0, so
+#     a network blip reported success while nothing had been installed;
+#   - output went to /dev/null, so a real failure left no clue as to why.
+# stdin is closed so an upstream script cannot swallow the caller's TUI input.
+# Output streams to the terminal as it happens AND is teed to a log: these
+# steps take minutes (apt, a source build), and a silent run is
+# indistinguishable from a hung one. The log outlives the scrollback so a
+# failure is still diagnosable after the fact. Created on first use, not at
+# source time.
+# ────────────────────────────────────────────────────────────────────────────
+UPSTREAM_LOG=""
+
+run_upstream() {   # run_upstream <label> <url>
+    local label="$1" url="$2" script rc
+    [ -n "$UPSTREAM_LOG" ] || UPSTREAM_LOG=$(mktemp /tmp/adsb-upstream-XXXXXX.log)
+    script=$(mktemp) || { warn "$label failed — mktemp failed"; return 1; }
+    if ! curl -fsSL -o "$script" "$url" || [ ! -s "$script" ]; then
+        warn "$label failed — could not fetch $url"
+        rm -f "$script"; return 1
+    fi
+    printf '\n===== %s =====\n' "$label" >> "$UPSTREAM_LOG"
+    # PIPESTATUS, not $?: $? is tee's status. Not `set -o pipefail` either -
+    # lib.sh is sourced, so it must not depend on the caller's shell flags.
+    bash "$script" < /dev/null 2>&1 | tee -a "$UPSTREAM_LOG"; rc=${PIPESTATUS[0]}
+    rm -f "$script"
+    [ "$rc" -eq 0 ] && return 0
+    warn "$label failed (exit $rc) — full log: $UPSTREAM_LOG"
+    return 1
+}
+
 # ── Architecture detection ──────────────────────────────────────────────────
 detect_arch() {
     case "$(uname -m)" in

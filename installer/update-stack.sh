@@ -55,50 +55,24 @@ fi
 clear
 info "Updating: $TARGETS"
 
-# ── Upstream installer runner ───────────────────────────────────────────────
-# Fetch to a file, then run it. Replaces `bash -c "$(wget -O - URL)"`, which had
-# two defects:
-#   - a failed download expands to an empty string and `bash -c ''` exits 0, so
-#     a network blip reported "updated" while nothing had been installed;
-#   - output went to /dev/null, so a genuine build failure printed "update
-#     failed" and discarded every clue as to why.
-# The log keeps a normal run as quiet as before; the tail is shown only on
-# failure, where the noise is the point.
-# ────────────────────────────────────────────────────────────────────────────
-UPDATE_LOG=$(mktemp /tmp/adsb-update-XXXXXX.log)
-
-run_upstream() {   # run_upstream <label> <url>
-  local label="$1" url="$2" script rc
-  script=$(mktemp) || { warn "$label update failed — mktemp failed"; return 1; }
-  if ! curl -fsSL -o "$script" "$url" || [ ! -s "$script" ]; then
-    warn "$label update failed — could not fetch $url"
-    rm -f "$script"; return 1
-  fi
-  printf '\n===== %s =====\n' "$label" >> "$UPDATE_LOG"
-  bash "$script" >> "$UPDATE_LOG" 2>&1; rc=$?
-  rm -f "$script"
-  [ "$rc" -eq 0 ] && { ok "$label updated"; return 0; }
-  warn "$label update failed (exit $rc) — last 20 lines:"
-  tail -n 20 "$UPDATE_LOG" >&2
-  warn "full log: $UPDATE_LOG"
-  return 1
-}
-
 for target in $TARGETS; do
   case "$target" in
     airspy)
       if has_airspy; then
         info "Updating airspy_adsb..."
-        run_upstream "airspy_adsb" "https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/update-binary.sh"
+        run_upstream "airspy_adsb update" "https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/update-binary.sh" \
+          && ok "airspy_adsb updated"
       else
         warn "airspy_adsb not installed, skipping"
       fi ;;
     readsb)
       info "Updating readsb + tar1090..."
-      run_upstream "readsb + tar1090" "https://raw.githubusercontent.com/wiedehopf/adsb-scripts/master/readsb-install.sh" ;;
+      run_upstream "readsb + tar1090 update" "https://raw.githubusercontent.com/wiedehopf/adsb-scripts/master/readsb-install.sh" \
+        && ok "readsb + tar1090 updated" ;;
     graphs1090)
       info "Updating graphs1090..."
-      run_upstream "graphs1090" "https://github.com/wiedehopf/graphs1090/raw/master/install.sh" ;;
+      run_upstream "graphs1090 update" "https://github.com/wiedehopf/graphs1090/raw/master/install.sh" \
+        && ok "graphs1090 updated" ;;
     monitor)
       info "Updating adsb-monitor..."
       DEST=/opt/adsb-monitor
@@ -119,8 +93,10 @@ for target in $TARGETS; do
       # the first, and stale files are left behind.
       rm -rf "$DEST/static"
       cp -r "$SCRIPT_DIR/../static" "$DEST/static"
-      # Refresh venv deps in case requirements changed
-      "$DEST/venv/bin/pip" install --quiet --upgrade flask psutil 2>/dev/null
+      # Refresh venv deps in case requirements changed. Not --quiet and not
+      # 2>/dev/null: a failed upgrade here is silent, and the monitor then gets
+      # restarted against whatever is left in the venv.
+      "$DEST/venv/bin/pip" install --upgrade flask psutil || warn "pip upgrade failed - continuing with the installed versions"
       # One-time migration: older installs point systemd straight at app.py,
       # which now crashes (system/*.py imports app.py as a module; running
       # it directly as __main__ collides with that import).

@@ -170,13 +170,13 @@ install_base_deps
 ok "Dependencies installed"
 
 info "[1/6] Installing readsb + tar1090..."
-bash -c "$(wget -q -O - https://raw.githubusercontent.com/wiedehopf/adsb-scripts/master/readsb-install.sh)" >/dev/null 2>&1
-ok "readsb + tar1090 installed"
+run_upstream "readsb + tar1090 install" "https://raw.githubusercontent.com/wiedehopf/adsb-scripts/master/readsb-install.sh" \
+  && ok "readsb + tar1090 installed"
 
 info "[2/6] Configuring decoder for $SDR_MODEL..."
 case "$SDR_DECODER" in
   airspy_adsb)
-    bash -c "$(wget -O - https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/install.sh)" >/dev/null 2>&1
+    run_upstream "airspy_adsb install" "https://raw.githubusercontent.com/wiedehopf/airspy-conf/master/install.sh"
     cat > /etc/default/airspy_adsb << AIRSPYEOF
 GAIN=$GAIN
 SAMPLE_RATE=$SAMPLE_RATE
@@ -283,9 +283,46 @@ SVCEOF
 fi
 
 info "[3/6] Installing graphs1090..."
-bash -c "$(curl -L -o - https://github.com/wiedehopf/graphs1090/raw/master/install.sh)" >/dev/null 2>&1
+run_upstream "graphs1090 install" "https://github.com/wiedehopf/graphs1090/raw/master/install.sh"
+
+# Set one key=value in /etc/default/graphs1090, appending it if absent. A blank
+# value is a no-op so an undetected device leaves the key as graphs1090 shipped
+# it rather than writing "disk=".
+g1090_set() {   # g1090_set <key> <value>
+  [ -n "$2" ] || return 0
+  if grep -q "^$1=" /etc/default/graphs1090; then
+    sed -i "s|^$1=.*|$1=$2|" /etc/default/graphs1090
+  else
+    echo "$1=$2" >> /etc/default/graphs1090
+  fi
+}
+
+# First interface matching a glob. Reads into a variable and loops over a
+# here-string rather than piping into `head`/`awk … exit`: under `set -o
+# pipefail` the consumer exiting early SIGPIPEs the producer and fails the
+# pipeline (the same trap that broke Airspy detection in update-stack.sh).
+# Patterns are separate arguments, not one "a*|b*" string: case patterns are
+# parsed before expansion, so a `|` arriving via a variable matches literally.
+first_iface() {   # first_iface <glob> [glob...]
+  local out line name pat
+  out=$(ip -o link show 2>/dev/null) || return 0
+  while IFS= read -r line; do
+    name=${line#*: }; name=${name%%:*}; name=${name%%@*}
+    for pat in "$@"; do
+      case "$name" in $pat) printf '%s' "$name"; return 0 ;; esac
+    done
+  done <<< "$out"
+}
+
 if [ -f /etc/default/graphs1090 ]; then
-  grep -q "^colorscheme=" /etc/default/graphs1090 && sed -i 's/^colorscheme=.*/colorscheme=dark/' /etc/default/graphs1090 || echo "colorscheme=dark" >> /etc/default/graphs1090
+  g1090_set colorscheme dark
+  # graphs1090 ships disk=/ether=/wifi= blank, which renders empty system
+  # graphs. Fill them from the host's actual devices.
+  ROOT_SRC=$(findmnt -no SOURCE / 2>/dev/null)
+  ROOT_DISK=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null); ROOT_DISK=${ROOT_DISK%%$'\n'*}
+  g1090_set disk  "$(echo "$ROOT_DISK" | tr -d ' ')"
+  g1090_set ether "$(first_iface 'en*' 'eth*')"
+  g1090_set wifi  "$(first_iface 'wl*')"
 fi
 systemctl restart graphs1090 2>/dev/null
 ok "graphs1090 installed (dark mode)"
@@ -293,13 +330,14 @@ ok "graphs1090 installed (dark mode)"
 info "[4/6] Installing feeders..."
 install_feeder() {
   case "$1" in
-    adsbexchange) bash -c "$(wget -q -O - https://www.adsbexchange.com/feed.sh)" </dev/null >/dev/null 2>&1; ok "  ADSBExchange installed" ;;
-    adsbfi) bash -c "$(wget -q -O - https://raw.githubusercontent.com/adsbfi/adsb-fi-scripts/main/install.sh)" </dev/null >/dev/null 2>&1; ok "  adsb.fi installed" ;;
-    adsblol) bash -c "$(wget -q -O - https://raw.githubusercontent.com/adsblol/feed/main/install.sh)" </dev/null >/dev/null 2>&1; ok "  adsb.lol installed" ;;
+    adsbexchange) run_upstream "ADSBExchange" "https://www.adsbexchange.com/feed.sh" && ok "  ADSBExchange installed" ;;
+    adsbfi) run_upstream "adsb.fi" "https://raw.githubusercontent.com/adsbfi/adsb-fi-scripts/main/install.sh" && ok "  adsb.fi installed" ;;
+    adsblol) run_upstream "adsb.lol" "https://raw.githubusercontent.com/adsblol/feed/main/install.sh" && ok "  adsb.lol installed" ;;
     flightaware)
-      bash -c "$(wget -q -O - https://raw.githubusercontent.com/abcd567a/piaware-ubuntu-debian-amd64/master/install-piaware.sh)" </dev/null >/dev/null 2>&1
-      piaware-config receiver-type other 2>/dev/null; piaware-config receiver-host localhost 2>/dev/null; piaware-config receiver-port 30005 2>/dev/null
-      systemctl restart piaware 2>/dev/null; ok "  PiAware installed (claim at flightaware.com)" ;;
+      if run_upstream "PiAware" "https://raw.githubusercontent.com/abcd567a/piaware-ubuntu-debian-amd64/master/install-piaware.sh"; then
+        piaware-config receiver-type other 2>/dev/null; piaware-config receiver-host localhost 2>/dev/null; piaware-config receiver-port 30005 2>/dev/null
+        systemctl restart piaware 2>/dev/null; ok "  PiAware installed (claim at flightaware.com)"
+      fi ;;
     flightradar24)
       if [ "$ARCH" = "unsupported" ]; then warn "  FR24: unsupported architecture $(uname -m) — skipping"
       else
@@ -320,7 +358,7 @@ install_feeder() {
       fi ;;
     adsbhub) warn "  ADSBHub needs manual client - see adsbhub.org/howtofeed.php" ;;
     planewatch) warn "  Plane.watch is Docker-based - see sdr-enthusiasts.gitbook.io" ;;
-    theairtraffic) bash -c "$(wget -q -O - https://gitlab.com/adsb/theairtraffic-feeder/-/raw/master/install.sh)" </dev/null >/dev/null 2>&1; ok "  TheAirTraffic installed" ;;
+    theairtraffic) run_upstream "TheAirTraffic" "https://gitlab.com/adsb/theairtraffic-feeder/-/raw/master/install.sh" && ok "  TheAirTraffic installed" ;;
   esac
 }
 for f in $FEEDERS; do install_feeder "$f"; done
