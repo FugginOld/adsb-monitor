@@ -1,0 +1,5 @@
+# Shell scripts must keep LF in the working tree, not just in the repo.
+# core.autocrlf=true otherwise hands Windows checkouts CRLF copies: shellcheck
+# then reports SC1017 on every line, and a CRLF .sh that ever got committed
+# dies on the Pi with "/bin/bash^M: bad interpreter".
+*.sh text eol=lf

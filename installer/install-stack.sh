@@ -309,6 +309,8 @@ first_iface() {   # first_iface <glob> [glob...]
   while IFS= read -r line; do
     name=${line#*: }; name=${name%%:*}; name=${name%%@*}
     for pat in "$@"; do
+      # shellcheck disable=SC2254  # $pat is a glob on purpose ('en*' must match
+      # enp3s0); quoting it would only ever match an interface named literally 'en*'.
       case "$name" in $pat) printf '%s' "$name"; return 0 ;; esac
     done
   done <<< "$out"
