@@ -129,8 +129,10 @@ def set_feeder_cfg(key: str) -> Any:
         ok, msg = set_feeder_settings(key, request.get_json())
         if ok:
             fmap = {f['key']: f for f in load_config()}
-            if key in fmap and fmap[key]['kind'] == 'service':
-                service_action(key, 'restart')
+            feeder = fmap.get(key)
+            if feeder and feeder.get('kind') == 'service':
+                service_key = str(feeder.get('key', ''))
+                service_action(service_key, 'restart')
         return jsonify({'ok': ok, 'message': msg})
     except Exception:
         app.app.logger.exception("Failed to update feeder config for key=%s", key)
