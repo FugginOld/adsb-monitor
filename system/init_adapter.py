@@ -39,6 +39,16 @@ class Result:
 class LinuxHost:
     def run(self, cmd: list[str], timeout: int = 10) -> Result:
         try:
+            if not cmd or any(not isinstance(tok, str) or not tok for tok in cmd):
+                logger.debug("Rejected invalid command tokens: %r", cmd)
+                return Result(1, '', 'invalid command arguments')
+            # Defense-in-depth: reject suspicious argument-style tokens for
+            # user-controlled service/container names while still allowing the
+            # option/template tokens used by existing call sites.
+            for tok in cmd[1:]:
+                if tok.startswith('-') and not (tok.startswith('--') or tok.startswith('-') or tok.startswith('{{')):
+                    logger.debug("Rejected suspicious command token: %r", tok)
+                    return Result(1, '', 'invalid command arguments')
             r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
             return Result(r.returncode, r.stdout, r.stderr)
         except Exception:
