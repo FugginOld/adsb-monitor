@@ -20,12 +20,16 @@ reports "service control unavailable".
 from __future__ import annotations
 
 import logging
+import string
 import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_BINARIES = frozenset({'systemctl', 'rc-service', 'docker'})
+_SAFE_CMD_CHARS = frozenset(string.ascii_letters + string.digits + '._@:/=+-{}')
 
 
 class Result:
@@ -42,12 +46,15 @@ class LinuxHost:
             if not cmd or any(not isinstance(tok, str) or not tok for tok in cmd):
                 logger.debug("Rejected invalid command tokens: %r", cmd)
                 return Result(1, '', 'invalid command arguments')
-            # Defense-in-depth: reject suspicious argument-style tokens for
-            # user-controlled service/container names while still allowing the
-            # option/template tokens used by existing call sites.
-            for tok in cmd[1:]:
-                if tok.startswith('-') and not (tok.startswith('--') or tok.startswith('-') or tok.startswith('{{')):
-                    logger.debug("Rejected suspicious command token: %r", tok)
+            if cmd[0] not in _ALLOWED_BINARIES:
+                logger.debug("Rejected non-allowlisted command: %r", cmd[0])
+                return Result(1, '', 'invalid command')
+            for i, tok in enumerate(cmd[1:], start=1):
+                if set(tok) - _SAFE_CMD_CHARS:
+                    logger.debug("Rejected token with unsafe characters: %r", tok)
+                    return Result(1, '', 'invalid command arguments')
+                if tok.startswith('-') and i == len(cmd) - 1:
+                    logger.debug("Rejected option-like trailing token: %r", tok)
                     return Result(1, '', 'invalid command arguments')
             r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
             return Result(r.returncode, r.stdout, r.stderr)
