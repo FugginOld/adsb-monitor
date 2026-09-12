@@ -30,6 +30,29 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_BINARIES = frozenset({'systemctl', 'rc-service', 'docker'})
 _SAFE_CMD_CHARS = frozenset(string.ascii_letters + string.digits + '._@:/=+-{}')
+_SYSTEMCTL_ACTIONS = frozenset({'start', 'stop', 'restart'})
+_RCSERVICE_ACTIONS = frozenset({'start', 'stop', 'restart', 'status'})
+
+
+def _is_allowed_command_shape(cmd: list[str]) -> bool:
+    if not cmd:
+        return False
+    bin_name = cmd[0]
+    if bin_name == 'systemctl':
+        if len(cmd) == 3 and cmd[1] in _SYSTEMCTL_ACTIONS:
+            return True
+        if len(cmd) == 3 and cmd[1] == 'is-active':
+            return True
+        if len(cmd) == 6 and cmd[1:5] == ['show', '-p', 'SubState', '--value']:
+            return True
+        if len(cmd) == 4 and cmd[1] == 'show' and cmd[3] == '--property=ActiveEnterTimestamp':
+            return True
+        return False
+    if bin_name == 'rc-service':
+        return len(cmd) == 3 and cmd[2] in _RCSERVICE_ACTIONS
+    if bin_name == 'docker':
+        return len(cmd) == 5 and cmd[1:4] == ['inspect', '--format', '{{.State.Status}}']
+    return False
 
 
 class Result:
@@ -56,6 +79,9 @@ class LinuxHost:
                 if tok.startswith('-') and i == len(cmd) - 1:
                     logger.debug("Rejected option-like trailing token: %r", tok)
                     return Result(1, '', 'invalid command arguments')
+            if not _is_allowed_command_shape(cmd):
+                logger.debug("Rejected disallowed command shape: %r", cmd)
+                return Result(1, '', 'invalid command arguments')
             r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
             return Result(r.returncode, r.stdout, r.stderr)
         except Exception:
