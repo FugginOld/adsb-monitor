@@ -260,7 +260,7 @@ def load_config() -> list[dict[str, Any]]:
     for section in cfg.sections():
         if ':' not in section: continue
         kind, name = section.split(':', 1)
-        if kind not in ('service', 'docker'): continue
+        if kind not in ('service', 'docker') or not valid_unit_name(name): continue
         items.append({
             'key': name, 'kind': kind,
             'label': cfg.get(section, 'label', fallback=name),

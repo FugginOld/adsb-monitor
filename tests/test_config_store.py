@@ -50,3 +50,10 @@ def test_set_feeder_settings_no_write_method(fake_host):
     ok, msg = appmod.set_feeder_settings('adsbfi-feed', {'UUID': 'x'})
     assert ok is False
     assert msg == 'No write method defined'
+
+
+def test_load_config_skips_invalid_unit_names(tmp_path, monkeypatch):
+    ini = tmp_path / 'feeders.ini'
+    ini.write_text('[service:readsb]\nlabel = ok\n\n[service:-x]\n\n[docker:a b]\n\n[service:a;b]\n')
+    monkeypatch.setattr(appmod, 'CONFIG_FILE', str(ini))
+    assert [f['key'] for f in appmod.load_config()] == ['readsb']
