@@ -169,7 +169,7 @@ def read_docker_env(container: str) -> dict[str, str]:
 Adapter = namedtuple('Adapter', ['read', 'write'])
 
 def _writable_only(cfg: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
-    """Drop readonly fields — file formats filter, docker/piaware historically don't."""
+    """Drop readonly fields — file formats and piaware filter, docker historically doesn't."""
     writable = {f['key'] for f in cfg.get('fields', []) if not f.get('readonly')}
     return {k: v for k, v in data.items() if k in writable}
 
@@ -184,7 +184,7 @@ def _write_shell_vars(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, 
     return True, 'Saved'
 
 def _write_piaware(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
-    for k, v in data.items():
+    for k, v in _writable_only(cfg, data).items():
         if v: app.HOST.run(['piaware-config', k, v], timeout=5)
     return True, 'Saved'
 

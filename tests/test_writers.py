@@ -114,3 +114,11 @@ def test_route_set_receiver_writes(client, fake_host):
     assert body['ok'] is True
     written = fake_host.writes[appmod.READSB_DEFAULT]
     assert '40.1' in written and '300' in written
+
+
+def test_write_piaware_only_runs_declared_fields(fake_host):
+    fake_host.default_command = Result(0, '', '')
+    appmod.set_feeder_settings('piaware', {
+        'receiver-host': '10.0.0.5', '--show': 'x', 'allow-manual-updates': 'yes'})
+    runs = [c[1] for c in fake_host.calls if c[0] == 'run']
+    assert runs == [('piaware-config', 'receiver-host', '10.0.0.5')]
