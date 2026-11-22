@@ -150,3 +150,10 @@ def test_routes_blocked_on_readonly_port(client, fake_host, method, path):
         appmod._request_port.port = appmod.ADMIN_PORT
     assert r.status_code == 403
     assert systemd_run_calls(fake_host) == []
+
+
+def test_runner_reloads_systemd_after_installer_and_keeps_its_status():
+    r = stack_update.RUNNER
+    assert 'systemctl daemon-reload' in r
+    # reload comes after the installer runs, and the unit still exits with the installer's status
+    assert r.index('bash "$t" "$@"') < r.index('systemctl daemon-reload') < r.rindex('exit $rc')
