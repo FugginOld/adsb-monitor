@@ -19,15 +19,18 @@ import app
 def set_password_cli() -> int:
     from system import admin_login
     print(f'Setting the admin password for port {app.ADMIN_PORT} ({app.ADMIN_AUTH_FILE}).')
-    print(f'At least {admin_login.MIN_PASSWORD_LEN} characters. Logs out every current session.')
+    print(f'At least {admin_login.MIN_LENGTH} characters. Logs out every current session.')
     pw = getpass.getpass('New admin password: ')
     if pw != getpass.getpass('Repeat it: '):
         print('Passwords do not match; nothing changed.', file=sys.stderr)
         return 1
+    if len(pw) < admin_login.MIN_LENGTH:
+        print(f'Too short (minimum {admin_login.MIN_LENGTH} characters); nothing changed.', file=sys.stderr)
+        return 1
     try:
         admin_login.set_password(pw)
-    except (ValueError, OSError) as e:
-        print(f'Not set: {e}', file=sys.stderr)
+    except OSError as e:
+        print(f'Not set: could not write {app.ADMIN_AUTH_FILE} ({e.strerror}).', file=sys.stderr)
         return 1
     print('Admin password set. It takes effect immediately; no restart needed.')
     return 0

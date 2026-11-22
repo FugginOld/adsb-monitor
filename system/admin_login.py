@@ -22,7 +22,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import app
 
-MIN_PASSWORD_LEN = 10
+MIN_LENGTH = 10
 FAIL_WINDOW_S = 15 * 60   # failed logins counted over this window, per client IP
 FAIL_MAX = 5              # failures allowed in the window before logins are refused
 FAIL_DELAY_S = 1.0        # pause after each wrong password (slows guessing)
@@ -71,8 +71,8 @@ def verify(password: str) -> bool:
 
 def set_password(password: str) -> None:
     """Hash and store a new password with a fresh signing key (logs out all sessions)."""
-    if len(password) < MIN_PASSWORD_LEN:
-        raise ValueError(f'Password must be at least {MIN_PASSWORD_LEN} characters')
+    if len(password) < MIN_LENGTH:
+        raise ValueError(f'Password must be at least {MIN_LENGTH} characters')
     data = {'password_hash': generate_password_hash(password),
             'secret_key': secrets.token_hex(32)}
     path = app.ADMIN_AUTH_FILE
