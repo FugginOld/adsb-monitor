@@ -23,53 +23,99 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any
 
 import app
 from system.sdr_detect import detect_airspy_model
 
 
-def parse_airspy_options(text: str) -> dict[str, str]:
-    s = {'gain': '21', 'sample_rate': '6', 'options': ''}
+# The airspy_adsb unit runs `... $G $GAIN $M $SAMPLE_RATE ...`, so GAIN and
+# SAMPLE_RATE only mean anything when the flag variable in front of them is set:
+#   G=-g  -> `-g <GAIN>`; airspy_adsb takes 0..21 or `auto`. With G empty, GAIN is a
+#            stray positional arg the decoder ignores, and it runs on auto gain.
+#   M=-m  -> `-m <SAMPLE_RATE>`; in airspy_adsb 2.x this is the MLAT frequency
+#            (12/20/24 MHz) and is Airspy R2 only. `-m` on a Mini (or `-m 6`) makes
+#            airspy_adsb exit with AIRSPY_ERROR_INVALID_PARAM, so M must stay empty
+#            unless the device is an R2.
+AIRSPY_GAINS = tuple(str(i) for i in range(22))
+R2_RATES = ('12', '20', '24')
+
+def _shell_vars(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
     for line in text.splitlines():
         line = line.strip()
         if line.startswith('#') or '=' not in line: continue
         k, _, v = line.partition('=')
-        k, v = k.strip(), v.strip().strip('"')
-        if k == 'GAIN': s['gain'] = v
-        elif k == 'SAMPLE_RATE': s['sample_rate'] = v
-        elif k == 'OPTIONS': s['options'] = v
-    return s
+        out[k.strip()] = v.strip().strip('"')
+    return out
 
-def write_airspy_options(settings: dict[str, Any]) -> None:
-    existing = app.HOST.read_text(app.AIRSPY_DEFAULT) or ''
-    updates = {
-        'GAIN':        settings.get('gain', '21'),
-        'SAMPLE_RATE': settings.get('sample_rate', '6'),
-        'OPTIONS':     f'"{settings.get("options", "-v -f 1 -w 5 -C 95 -E 60")}"',
-    }
-    updated = set()
+def parse_airspy_options(text: str) -> dict[str, str]:
+    """The settings airspy_adsb is *actually* started with, not the raw values:
+    gain is 'auto' unless G=-g puts a number in front of -g, and sample_rate is ''
+    (decoder default) unless M=-m passes it."""
+    v = _shell_vars(text)
+    gain = v.get('GAIN', '').lower()
+    if v.get('G') != '-g' or gain not in AIRSPY_GAINS:
+        gain = 'auto'
+    rate = v.get('SAMPLE_RATE', '') if v.get('M') == '-m' else ''
+    return {'gain': gain, 'sample_rate': rate, 'options': v.get('OPTIONS', '')}
+
+def _set_shell_vars(text: str, updates: dict[str, str]) -> str:
+    """Replace KEY=... lines in place (appending missing keys), keep everything else."""
+    done: set[str] = set()
     out = []
-    for line in existing.splitlines():
+    for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith('#') or '=' not in stripped:
-            out.append(line); continue
-        key = stripped.split('=')[0].strip()
+        key = stripped.split('=')[0].strip() if '=' in stripped and not stripped.startswith('#') else None
         if key in updates:
-            out.append(f'{key}={updates[key]}')
-            updated.add(key)
+            if key in done: continue            # drop duplicate definitions
+            out.append(f'{key}={updates[key]}'); done.add(key)
         else:
             out.append(line)
-    for key, val in updates.items():
-        if key not in updated:
-            out.append(f'{key}={val}')
-    existing_keys = {l.split('=')[0].strip() for l in out if '=' in l and not l.strip().startswith('#')}
-    required = {'AFFINITY': '0', 'NET': '-l 47787:beast -c 127.0.0.1:30004:beast',
-                'STATS': '-S /run/airspy_adsb/stats.json', 'G': '', 'M': ''}
-    for key, default in required.items():
-        if key not in existing_keys:
-            out.append(f'{key}={default}')
-    app.HOST.write_text(app.AIRSPY_DEFAULT, '\n'.join(out) + '\n')
+    out += [f'{k}={v}' for k, v in updates.items() if k not in done]
+    return '\n'.join(out) + '\n'
+
+def set_airspy_gain(text: str, gain: str) -> str:
+    """Change only the gain (GAIN + its -g flag); every other line stays byte-for-byte."""
+    gain = str(gain).strip().lower()
+    if gain not in AIRSPY_GAINS and gain != 'auto':
+        raise ValueError(f'gain must be 0-21 or auto, not {gain!r}')
+    return _set_shell_vars(text, {'G': '-g', 'GAIN': gain})
+
+def write_airspy_options(settings: dict[str, Any], model: str = 'unknown') -> None:
+    """Write gain / sample rate / options. Raises ValueError on a value airspy_adsb
+    would reject, so a bad form submit can't crash-loop the decoder."""
+    existing = app.HOST.read_text(app.AIRSPY_DEFAULT) or ''
+    gain = str(settings.get('gain', 'auto')).strip().lower()
+    if gain not in AIRSPY_GAINS and gain != 'auto':
+        raise ValueError(f'gain must be 0-21 or auto, not {gain!r}')
+    rate = str(settings.get('sample_rate') or '').strip()
+    if model != 'r2':
+        rate = ''                               # -m is R2-only; never pass it otherwise
+    elif rate and rate not in R2_RATES:
+        raise ValueError(f'sample rate must be one of {", ".join(R2_RATES)} MHz')
+    options = str(settings.get('options', '-v -f 1 -w 5 -C 95 -E 60'))
+    if '"' in options or '\n' in options:
+        raise ValueError('options may not contain quotes or newlines')
+    updates = {'G': '-g', 'GAIN': gain,
+               'M': '-m' if rate else '', 'SAMPLE_RATE': rate,
+               'OPTIONS': f'"{options}"'}
+    v = _shell_vars(existing)
+    # The unit crash-loops if any of these is undefined; add defaults only when absent.
+    for key, default in {'AFFINITY': '0', 'NET': '"-l 47787:beast -c 127.0.0.1:30004:beast"',
+                         'STATS': '"-S /run/airspy_adsb/stats.json"'}.items():
+        if key not in v: updates[key] = default
+    app.HOST.write_text(app.AIRSPY_DEFAULT, _set_shell_vars(existing, updates))
+
+def airspy_live_stats(max_age_s: float = 180) -> dict[str, Any] | None:
+    """Gain/sample rate airspy_adsb reports in its stats.json, or None if stale/missing."""
+    s = app.HOST.read_json(app.AIRSPY_STATS) or {}
+    try:
+        if time.time() - float(s.get('now', 0)) > max_age_s: return None
+    except (TypeError, ValueError):
+        return None
+    return {'gain': s.get('gain'), 'sample_rate': s.get('samplerate')}
 
 def parse_receiver_options(text: str) -> dict[str, str]:
     s = {'lat': '', 'lon': '', 'max_range': '500'}
@@ -160,13 +206,27 @@ def write_sdr978(gain: str | None, biastee: bool) -> None:
         out.append(line)
     app.HOST.write_text(app.DUMP978_DEFAULT, '\n'.join(out) + '\n')
 
+def _fmt_gain(g: Any) -> str:
+    try:
+        f = float(g)
+        return str(int(f)) if f.is_integer() else f'{f:.1f}'
+    except (TypeError, ValueError):
+        return str(g)
+
 def airspy_live_hint() -> str:
+    """What the decoder is really doing (stats.json), falling back to the config."""
     try:
         settings = parse_airspy_options(app.HOST.read_text(app.AIRSPY_DEFAULT) or '')
         model = detect_airspy_model()
-        rate  = settings.get('sample_rate', '?')
-        gain  = settings.get('gain', '?')
         label = 'Mini' if model == 'mini' else 'R2' if model == 'r2' else ''
-        return f'{rate} MSPS{" ("+label+")" if label else ""} · gain {gain} · Beast → :30004'
+        live = airspy_live_stats()
+        auto = settings['gain'] == 'auto'
+        if live:
+            rate = f'{live["sample_rate"]} MSPS'
+            gain = f'gain {_fmt_gain(live["gain"])}{" (auto)" if auto else ""}'
+        else:
+            rate = f'{settings["sample_rate"]} MSPS' if settings['sample_rate'] else 'default rate'
+            gain = f'gain {settings["gain"]}'
+        return f'{rate}{" ("+label+")" if label else ""} · {gain} · Beast → :30004'
     except Exception:
-        return '6 MSPS · gain 21 · Beast → :30004'
+        return 'Beast → :30004'

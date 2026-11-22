@@ -1,4 +1,4 @@
-"""Settings routes: airspy, receiver, per-band SDR, feeder list, feeder config."""
+"""Settings routes: airspy, airspy auto-tune, receiver, per-band SDR, feeder list, feeder config."""
 from __future__ import annotations
 
 import logging
@@ -7,13 +7,15 @@ from typing import Any, cast
 from flask import Blueprint, jsonify, request
 
 import app
+from system import autotune
 from system.auth import admin_required
 from system.config_io import (
     FEEDER_CONFIGS, get_feeder_settings, load_config, save_feeders, set_feeder_settings,
 )
+from system.db import get_gain_changes
 from system.sdr_detect import detect_airspy_model
 from system.sdr_settings import (
-    parse_airspy_options, parse_receiver_options, parse_sdr1090,
+    R2_RATES, airspy_live_stats, parse_airspy_options, parse_receiver_options, parse_sdr1090,
     parse_sdr978, write_airspy_options, write_receiver_options, write_sdr1090, write_sdr978,
 )
 from system.services import service_action
@@ -29,9 +31,12 @@ def get_airspy() -> Any:
     try:
         settings = parse_airspy_options(app.HOST.read_text(app.AIRSPY_DEFAULT) or '')
         model    = detect_airspy_model()
-        settings['model'] = model
-        settings['recommended_sample_rate'] = '6' if model == 'mini' else '12'
-        return jsonify({'ok': True, 'settings': settings})
+        out: dict[str, Any] = dict(settings)
+        out['model'] = model
+        # -m (MLAT freq) is R2-only; a Mini runs at the decoder's fixed rate.
+        out['rate_options'] = list(R2_RATES) if model == 'r2' else []
+        out['live'] = airspy_live_stats()
+        return jsonify({'ok': True, 'settings': out})
     except Exception:
         logger.exception("Failed to read Airspy settings")
         return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
@@ -40,11 +45,43 @@ def get_airspy() -> Any:
 @admin_required
 def set_airspy() -> Any:
     try:
-        write_airspy_options(request.get_json())
+        d = request.get_json(silent=True)
+        if not isinstance(d, dict):
+            return jsonify({'ok': False, 'error': 'expected a JSON object'}), 400
+        try:
+            write_airspy_options(d, model=detect_airspy_model())
+        except ValueError as e:
+            return jsonify({'ok': False, 'error': str(e)}), 400
         ok, out = service_action('airspy_adsb', 'restart')
         return jsonify({'ok': ok, 'output': out})
     except Exception:
         logger.exception("Failed to update Airspy settings")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
+
+# Status is safe for the read-only port (no settings or keys in it); changes are admin-only.
+@bp.route('/api/autotune', methods=['GET'])
+def get_autotune() -> Any:
+    try:
+        return jsonify({'ok': True, 'config': autotune.load_config(),
+                        'state': autotune.snapshot(), 'history': get_gain_changes(10)})
+    except Exception:
+        logger.exception("Failed to read auto-tune state")
+        return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
+
+@bp.route('/api/autotune', methods=['POST'])
+@admin_required
+def set_autotune() -> Any:
+    try:
+        d = request.get_json(silent=True)
+        if not isinstance(d, dict):
+            return jsonify({'ok': False, 'error': 'expected a JSON object'}), 400
+        try:
+            cfg = autotune.save_config(d)
+        except ValueError as e:
+            return jsonify({'ok': False, 'error': str(e)}), 400
+        return jsonify({'ok': True, 'config': cfg})
+    except Exception:
+        logger.exception("Failed to update auto-tune settings")
         return jsonify({'ok': False, 'error': 'An internal error has occurred.'})
 
 @bp.route('/api/settings/receiver', methods=['GET'])
