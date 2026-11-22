@@ -72,7 +72,10 @@ for target in $TARGETS; do
       info "Removing adsb-monitor..."
       remove_service adsb-monitor
       rm -f /etc/systemd/system/adsb-monitor.service
-      rm -rf /opt/adsb-monitor
+      rm -rf /etc/systemd/system/adsb-monitor.service.d   # service-user.sh drop-in
+      rm -f /etc/sudoers.d/adsb-monitor
+      rm -rf /opt/adsb-monitor /var/lib/adsb-monitor
+      id adsb-monitor >/dev/null 2>&1 && userdel adsb-monitor
       systemctl daemon-reload
       ok "adsb-monitor removed (history.db deleted)" ;;
     airspy)

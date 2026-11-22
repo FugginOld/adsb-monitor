@@ -21,6 +21,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   restores every file the save changed (removing one it created), reloads systemd for
   drop-ins, and restarts again; `.adsb-monitor.bak` stays the last good copy. The save
   toast follows the check (`GET /api/settings/check/<id>`).
+- Run as a dedicated user (`sudo installer/service-user.sh enable|disable|status`):
+  - **The switch:** the monitor runs as `adsb-monitor`, with its data in
+    `/var/lib/adsb-monitor`. The script rolls back to root if the monitor doesn't
+    come up.
+  - **Root actions:** everything that needs root goes through
+    `system/privileged.py` (`helper.py` via one sudoers line). That gateway checks
+    paths, file contents, unit names, the container and the component, and it
+    applies in root mode too. The helper logs each change to the auth log.
 - Browser tests (`tests/browser/`, Playwright + headless Chromium, a CI job on PRs to
   `main`): login, view switching, Airspy and receiver saves through verified and
   rolled-back checks, config revert, feeder-list edits, the no-data badge and banner,
@@ -64,6 +72,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   auto-tune off (so it doesn't walk the gain back) and is recorded in the gain history.
 
 ### Security
+- The bias-tee drop-in can now only be one of the two the dashboard generates. Before
+  this, a `--device` serial in `/etc/default/readsb` was copied into a root
+  `ExecStartPre` shell command unchecked.
+- A config import no longer restores `adsb-monitor.service` (the unit names the
+  user and command the monitor runs as); the file stays in the download.
+- Saving piaware settings reports a failed `piaware-config` call instead of "Saved".
 - Content-Security-Policy on HTML pages (`script-src 'self'`, `object-src 'none'`,
   `frame-src` limited to http/https for the map and graphs) plus
   `X-Content-Type-Options: nosniff`. Inline scripts and `on*=` handlers were removed

@@ -10,6 +10,14 @@ from system.init_adapter import BACKUP_SUFFIX, LinuxHost
 host = LinuxHost()
 
 
+@pytest.fixture(autouse=True)
+def tmp_is_data_dir(tmp_path, monkeypatch):
+    """The monitor's own data dir is written directly; anything else goes through
+    the privileged gateway (tests/test_privileged.py)."""
+    import app as appmod
+    monkeypatch.setattr(appmod, 'DATA_DIR', str(tmp_path))
+
+
 def mode(p):
     return stat.S_IMODE(os.stat(p).st_mode)
 

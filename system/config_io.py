@@ -157,9 +157,8 @@ def read_piaware_config(fields: list[Any]) -> dict[str, str]:
 
 def read_docker_env(container: str) -> dict[str, str]:
     vals = {}
-    r = app.HOST.run(
-        ['docker', 'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', container],
-        timeout=5)
+    r = app.HOST.elevated('docker-inspect', container, '{{range .Config.Env}}{{println .}}{{end}}',
+                          timeout=10)
     for line in r.out.splitlines():
         if '=' in line:
             k, _, v = line.partition('=')
@@ -185,14 +184,26 @@ def _write_shell_vars(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, 
 
 def _write_piaware(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
     for k, v in _writable_only(cfg, data).items():
-        if v: app.HOST.run(['piaware-config', k, v], timeout=5)
+        if v:
+            r = app.HOST.elevated('piaware-config', k, v, timeout=15)
+            if not r.ok:
+                return False, (r.err or r.out or f'piaware-config {k} failed').strip()[:200]
     return True, 'Saved'
 
 def _write_docker(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]:
     container = cfg['docker_container']
     current = read_docker_env(container)
     current.update({k: v for k, v in data.items() if v != ''})
-    r = app.HOST.run(['docker', 'inspect', container], timeout=5)
+    r = app.HOST.elevated('docker-recreate', container, stdin=json.dumps(current).encode(), timeout=90)
+    if r.code == 77:
+        return False, r.err.strip()
+    return r.ok, (r.out if r.ok else (r.err or r.out or 'docker run failed')).strip()
+
+
+def recreate_container(host: Any, container: str, current: dict[str, str]) -> tuple[bool, str]:
+    """Recreate `container` with env `current`; image, extra hosts and restart
+    policy come from the existing container. Runs as root (system/privileged.py)."""
+    r = host.run(['docker', 'inspect', container], timeout=5)
     info = json.loads(r.out)[0]
     image = info['Config']['Image']
     extra_hosts = info['HostConfig'].get('ExtraHosts') or []
@@ -202,17 +213,17 @@ def _write_docker(cfg: dict[str, Any], data: dict[str, Any]) -> tuple[bool, str]
     # `docker run` (bad env value, missing image, ...) can be rolled back —
     # otherwise the feeder is gone with no way back.
     backup = f'{container}_bak'
-    app.HOST.run(['docker', 'rm', '-f', backup], timeout=10)   # clear any stale backup
-    app.HOST.run(['docker', 'stop', container], timeout=10)
-    app.HOST.run(['docker', 'rename', container, backup], timeout=10)
-    run = app.HOST.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
+    host.run(['docker', 'rm', '-f', backup], timeout=10)   # clear any stale backup
+    host.run(['docker', 'stop', container], timeout=10)
+    host.run(['docker', 'rename', container, backup], timeout=10)
+    run = host.run(['docker', 'run', '-d', '--name', container, '--restart', 'unless-stopped']
                    + env_args + host_args + [image], timeout=15)
     if not run.ok:
         # roll back: restore and restart the original container
-        app.HOST.run(['docker', 'rename', backup, container], timeout=10)
-        app.HOST.run(['docker', 'start', container], timeout=10)
+        host.run(['docker', 'rename', backup, container], timeout=10)
+        host.run(['docker', 'start', container], timeout=10)
         return False, run.err or 'docker run failed'
-    app.HOST.run(['docker', 'rm', '-f', backup], timeout=10)   # success: drop backup
+    host.run(['docker', 'rm', '-f', backup], timeout=10)   # success: drop backup
     return True, 'Container recreated'
 
 CONFIG_ADAPTERS = {

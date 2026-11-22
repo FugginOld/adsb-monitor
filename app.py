@@ -29,18 +29,25 @@ app = Flask(__name__, static_folder='static')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
 # ── Paths & runtime config ───────────────────────────────────────────────────
-# Where things live on the host. feeders.ini and history.db sit next to this
-# file in /opt/adsb-monitor; the /run and /etc paths are written by the SDR stack.
+# Where things live on the host. The monitor's own data (feeders.ini,
+# history.db, autotune*.json, admin_auth.json) lives in DATA_DIR: the
+# ADSB_MONITOR_DATA environment variable, else /var/lib/adsb-monitor once
+# installer/service-user.sh has created it (the code in /opt stays root-only),
+# else next to this file as on older installs. The /run and /etc paths are
+# written by the SDR stack.
 # The URL/port values come from the systemd unit's Environment= lines (generated
 # at install time) and fall back to sane defaults when unset.
 # ─────────────────────────────────────────────────────────────────────────────
 
 APP_VERSION    = '1.1.0'  # bump alongside CHANGELOG.md
-CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
-DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
-AUTOTUNE_FILE  = os.path.join(os.path.dirname(__file__), 'autotune.json')
-AUTOTUNE_STATE_FILE = os.path.join(os.path.dirname(__file__), 'autotune_state.json')
-ADMIN_AUTH_FILE = os.path.join(os.path.dirname(__file__), 'admin_auth.json')  # run.py set-password
+SERVICE_DATA_DIR = '/var/lib/adsb-monitor'
+DATA_DIR: str = (os.environ.get('ADSB_MONITOR_DATA')
+                 or (SERVICE_DATA_DIR if os.path.isdir(SERVICE_DATA_DIR) else os.path.dirname(os.path.abspath(__file__))))
+CONFIG_FILE: str = os.path.join(DATA_DIR, 'feeders.ini')
+DB_FILE        = os.path.join(DATA_DIR, 'history.db')
+AUTOTUNE_FILE  = os.path.join(DATA_DIR, 'autotune.json')
+AUTOTUNE_STATE_FILE = os.path.join(DATA_DIR, 'autotune_state.json')
+ADMIN_AUTH_FILE = os.path.join(DATA_DIR, 'admin_auth.json')  # run.py set-password
 READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
 AIRSPY_DEFAULT = '/etc/default/airspy_adsb'

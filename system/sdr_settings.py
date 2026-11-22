@@ -186,11 +186,11 @@ def write_sdr1090(gain: str | None, biastee: bool) -> None:
                    f'| grep -q {serial} && {{ rtl_biast -d $i -b 1; break; }}; done; true"')
         else:
             pre = '/bin/sh -c "rtl_biast -d 0 -b 1; true"'
-        app.HOST.run(['mkdir', '-p', os.path.dirname(BIASTEE_1090_CONF)])
+        app.HOST.makedirs(os.path.dirname(BIASTEE_1090_CONF))
         app.HOST.write_text(BIASTEE_1090_CONF, f'[Service]\nExecStartPre={pre}\n', backup=True)
     else:
-        app.HOST.run(['rm', '-f', BIASTEE_1090_CONF])
-    app.HOST.run(['systemctl', 'daemon-reload'])
+        app.HOST.elevated('rm', BIASTEE_1090_CONF)
+    app.HOST.elevated('systemctl', 'daemon-reload')
 
 def parse_sdr978() -> dict[str, Any]:
     text = app.HOST.read_text(app.DUMP978_DEFAULT) or ''

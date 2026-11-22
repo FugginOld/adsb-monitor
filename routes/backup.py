@@ -33,6 +33,9 @@ CONFIG_BACKUP_FILES = {
     'readsb-biastee.conf':  BIASTEE_1090_CONF,
     'adsb-monitor.service': '/etc/systemd/system/adsb-monitor.service',
 }
+# In the download for reference, never restored from an upload: the unit names
+# the user and command the monitor runs as (system/privileged.py).
+RESTORE_SKIP = {'adsb-monitor.service'}
 # collectd RRD base. We back up the whole tree (the host-named subdir varies:
 # graphs1090 may use 'localhost' or the real hostname), so the graph data is
 # captured regardless, and restored to the same place.
@@ -80,17 +83,23 @@ def api_restore() -> Any:
     f = request.files.get('file')
     if not f:
         return jsonify({'ok': False, 'error': 'no file uploaded'}), 400
-    restored = []
+    restored: list[str] = []
+    skipped: list[str] = []
     try:
         with zipfile.ZipFile(f.stream) as zf:
             for name in zf.namelist():
                 dest = CONFIG_BACKUP_FILES.get(name)
-                if not dest:
+                if not dest or name in RESTORE_SKIP:
                     continue  # ignore anything not in the whitelist
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with zf.open(name) as src:
+                    data = src.read()
+                try:
+                    app.HOST.makedirs(os.path.dirname(dest))
                     # atomic, and the file being replaced is kept as <dest>.adsb-monitor.bak
-                    app.HOST.write_bytes(dest, src.read(), backup=True)
+                    app.HOST.write_bytes(dest, data, backup=True)
+                except PermissionError as e:   # refused by the privileged gateway
+                    skipped.append(f'{name}: {e}')
+                    continue
                 restored.append(name)
     except zipfile.BadZipFile:
         return jsonify({'ok': False, 'error': 'not a valid backup zip'}), 400
@@ -99,10 +108,13 @@ def api_restore() -> Any:
         return jsonify({'ok': False, 'error': 'An internal error has occurred.'}), 500
     # Re-apply: reload units (biastee drop-in) and bounce the decoders. Not adsb-monitor
     # itself — that would kill this request before the response is sent.
-    app.HOST.run(['systemctl', 'daemon-reload'])
+    app.HOST.elevated('systemctl', 'daemon-reload')
     for svc in ('readsb', 'dump978-fa'):
-        app.HOST.run(['systemctl', 'try-restart', svc])
-    return jsonify({'ok': True, 'restored': restored})
+        app.HOST.elevated('systemctl', 'try-restart', svc)
+    out: dict[str, Any] = {'ok': True, 'restored': restored}
+    if skipped:
+        out['skipped'] = skipped
+    return jsonify(out)
 
 def _safe_path_under_base(base_dir: str, archive_name: str, require_rrd: bool = False) -> tuple[str, ...] | None:
     """Return validated relative path parts for an archive entry, or None if invalid."""
@@ -141,12 +153,24 @@ def api_restore_graphs() -> Any:
     f = request.files.get('file')
     if not f:
         return jsonify({'ok': False, 'error': 'no file uploaded'}), 400
+    r = app.HOST.elevated('restore-graphs', stdin=f.stream.read(), timeout=600)
+    if r.ok:
+        return jsonify({'ok': True, 'restored': int(r.out.strip() or 0)})
+    if 'BadZipFile' in r.err:
+        return jsonify({'ok': False, 'error': 'not a valid graph backup zip'}), 400
+    logger.error('Graph restore failed: %s', r.err.strip()[:200])
+    return jsonify({'ok': False, 'error': 'An internal error has occurred.'}), 500
+
+
+def restore_graphs_zip(host: Any, stream: Any) -> int:
+    """Extract a graph backup into GRAPHS_RRD_DIR with collectd stopped. Runs as
+    root (system/privileged.py). Raises zipfile.BadZipFile for a bad upload."""
     base = os.path.realpath(GRAPHS_RRD_DIR)
     count = 0
+    host.run(['systemctl', 'stop', 'collectd'])
     try:
-        app.HOST.run(['systemctl', 'stop', 'collectd'])
         os.makedirs(base, exist_ok=True)
-        with zipfile.ZipFile(f.stream) as zf:
+        with zipfile.ZipFile(stream) as zf:
             for name in zf.namelist():
                 safe_parts = _safe_path_under_base(base, name, require_rrd=True)
                 if not safe_parts:
@@ -173,13 +197,7 @@ def api_restore_graphs() -> Any:
                         pass
                     raise
                 count += 1
-    except zipfile.BadZipFile:
-        app.HOST.run(['systemctl', 'start', 'collectd'])
-        return jsonify({'ok': False, 'error': 'not a valid graph backup zip'}), 400
-    except Exception:
-        app.HOST.run(['systemctl', 'start', 'collectd'])
-        logger.exception("Graph restore failed")
-        return jsonify({'ok': False, 'error': 'An internal error has occurred.'}), 500
-    app.HOST.run(['systemctl', 'start', 'collectd'])
-    app.HOST.run(['systemctl', 'try-restart', 'graphs1090'])
-    return jsonify({'ok': True, 'restored': count})
+    finally:
+        host.run(['systemctl', 'start', 'collectd'])
+    host.run(['systemctl', 'try-restart', 'graphs1090'])
+    return count

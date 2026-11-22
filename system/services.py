@@ -34,7 +34,7 @@ def systemd_sub_state(service: str) -> str:
     return app.INIT.sub_state(service)
 
 def docker_status(container: str) -> tuple[str, str]:
-    r = app.HOST.run(['docker', 'inspect', '--format', '{{.State.Status}}', container], timeout=5)
+    r = app.HOST.elevated('docker-inspect', container, '{{.State.Status}}', timeout=10)
     state = r.out.strip()
     if not state: return 'error', 'not found'
     return ('ok' if state == 'running' else 'error'), state
