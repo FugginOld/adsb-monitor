@@ -59,7 +59,7 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 | `stats.py` | Airspy signal analysis, system metrics, readsb/band stats | `get_airspy_stats`, `gain_recommendation`, `get_system_metrics`, `get_readsb_deep_stats`, `get_band_stats` |
 | `versions.py` | Installed-vs-latest version checking, self-contained cache | `VERSION_SOURCES`, `refresh_versions`, `get_versions`, `invalidate_cache` |
 | `logstream.py` | SSE log-follow framing (journalctl / docker logs) | `_sse`, `_journalctl`, `_log_command`, `stream_logs` |
-| `autotune.py` | Airspy gain auto-tune — strong-signal % from `rssi_buckets`, dead band, verify + rollback | `autotune_step`, `decide`, `strong_pct`, `load_config`/`save_config`, `snapshot` (imports `sdr_settings`, `db`, `services`) |
+| `autotune.py` | Airspy gain auto-tune — strong-signal % from `rssi_buckets`, dead band, verify + rollback; state persisted to `autotune_state.json` | `autotune_step`, `decide`, `strong_pct`, `load_config`/`save_config`, `snapshot` (imports `sdr_settings`, `db`, `services`) |
 | `stack_update.py` | Dashboard-triggered stack updates — upstream installer in a transient systemd unit, one at a time | `COMPONENTS`, `start_update`, `status`, `component_state`, `unit_name` |
 | `poll.py` | Background poller — records status + metrics every 30s, runs auto-tune | `background_poll` |
 

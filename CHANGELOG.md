@@ -12,6 +12,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and disables itself if airspy_adsb doesn't come back at the new gain. Changes are listed
   in the UI and stored in `history.db` (`gain_changes`). Config: `autotune.json`.
 - `GET`/`POST /api/autotune`.
+- Auto-tune's run state (sample window, last change, last decision, and any change still
+  being verified, with the config to roll back to) is saved to `autotune_state.json` and
+  restored after a monitor restart, so frequent restarts no longer reset the window or skip
+  verifying a change. Samples older than one window, or taken at a different gain, are
+  dropped on restore; an unreadable file just starts a fresh window.
 - Update readsb, tar1090 and graphs1090 from Settings → Service control. Each runs the
   same wiedehopf installer as `installer/update-stack.sh` (readsb in `binary-only` mode,
   so fr24feed.ini/rbfeeder.ini and `/etc/default/readsb` are left alone) as a transient

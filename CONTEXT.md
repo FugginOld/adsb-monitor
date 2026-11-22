@@ -23,7 +23,8 @@ For the physical module/route layout (which file each of these lives in), see
   that steps a fixed airspy gain to keep the strong-signal % inside a dead band
   (default 0.5–5 %), one decision per ~15 min window. Changes only GAIN/G, records
   every change in `gain_changes`, verifies the decoder came back at the new gain, and
-  on failure restores the old file and disables itself.
+  on failure restores the old file and disables itself. Its window and any pending
+  verification persist in `autotune_state.json` across monitor restarts.
 - **Gain override** — a manual gain change while auto-tune is on. Refused (409) unless
   confirmed; confirming turns auto-tune off and records the change.
 - **Stack update** — re-running a wiedehopf installer (readsb `binary-only`, tar1090,

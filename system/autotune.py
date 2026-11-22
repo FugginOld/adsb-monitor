@@ -28,8 +28,15 @@ the next decision only needs one more sample. A manual gain change from the UI
 resets the window, and a manual edit during verification cancels the
 verification instead of rolling the user's change back.
 
-Config lives in AUTOTUNE_FILE (JSON, next to history.db); run-time state is in
-memory and resets when the monitor restarts.
+Config lives in AUTOTUNE_FILE (JSON, next to history.db). Run-time state — the
+sample window, the gain it was collected at, the last change time, the last
+decision, and a change awaiting verification (with the previous config text
+for rollback) — is mirrored to AUTOTUNE_STATE_FILE and restored on the first
+poll after a restart, so restarting the monitor, however often, neither throws
+away a partly collected window nor forgets to verify (or roll back) a change.
+On restore, samples older than one window or collected at a gain the decoder
+is no longer running are dropped by the normal checks, never used. A missing
+or unreadable state file just means starting a fresh window.
 """
 from __future__ import annotations
 
@@ -50,6 +57,7 @@ UNIT = 'airspy_adsb'
 STATS_MAX_AGE_S  = 180   # stats.json older than this is treated as missing
 VERIFY_AFTER_S   = 75    # first verification attempt after a change
 VERIFY_TIMEOUT_S = 240   # give up and roll back after this long
+WINDOW_SLACK_S   = 120   # extra age a sample may have and still count toward a window
 
 DEFAULTS: dict[str, Any] = {
     'enabled':         False,
@@ -167,6 +175,8 @@ def sum_buckets(samples: list[list[int]]) -> list[int]:
 
 # ── Run-time state ───────────────────────────────────────────────────────────
 
+_PENDING_KEYS = {'ts': float, 'old': str, 'new': str, 'prev_text': str, 'new_text': str}
+
 class _State:
     def __init__(self) -> None:
         self.samples: list[tuple[float, list[int]]] = []
@@ -180,21 +190,87 @@ class _State:
         self.samples = []
         self.window_gain = gain
 
+    def to_dict(self) -> dict[str, Any]:
+        return {'version': 1, 'samples': [[ts, b] for ts, b in self.samples],
+                'window_gain': self.window_gain, 'last_change_ts': self.last_change_ts,
+                'pending': self.pending, 'last_decision': self.last_decision}
+
+    @classmethod
+    def from_dict(cls, d: Any) -> '_State':
+        """Rebuild from a saved dict; anything malformed is dropped, not trusted."""
+        st = cls()
+        if not isinstance(d, dict) or d.get('version') != 1:
+            return st
+        wg = d.get('window_gain')
+        st.window_gain = wg if isinstance(wg, str) and wg in AIRSPY_GAINS else None
+        for item in d.get('samples') or []:
+            if (isinstance(item, list) and len(item) == 2 and isinstance(item[0], (int, float))
+                    and isinstance(item[1], list) and all(isinstance(n, int) for n in item[1])):
+                st.samples.append((float(item[0]), list(item[1])))
+        if st.window_gain is None:
+            st.samples = []
+        lc = d.get('last_change_ts')
+        st.last_change_ts = float(lc) if isinstance(lc, (int, float)) else 0.0
+        p = d.get('pending')
+        if isinstance(p, dict) and all(isinstance(p.get(k), t if t is not float else (int, float))
+                                       for k, t in _PENDING_KEYS.items()):
+            st.pending = {k: (float(p[k]) if t is float else p[k]) for k, t in _PENDING_KEYS.items()}
+        ld = d.get('last_decision')
+        st.last_decision = ld if isinstance(ld, dict) else None
+        return st
+
 _lock = threading.Lock()
 _state = _State()
+_loaded = False          # state restored from AUTOTUNE_STATE_FILE yet?
+_last_saved: str | None = None
+
+def _restore() -> None:
+    """Once per process: adopt the saved state. Caller holds _lock."""
+    global _state, _loaded, _last_saved
+    _loaded = True
+    try:
+        raw = app.HOST.read_json(app.AUTOTUNE_STATE_FILE)
+    except Exception:
+        raw = None                              # unreadable state = fresh window
+    if raw is None:
+        return
+    _state = _State.from_dict(raw)
+    _last_saved = json.dumps(_state.to_dict(), sort_keys=True)
+    if _state.pending:
+        logger.info('auto-tune: resuming verification of gain %s after restart', _state.pending['new'])
+
+def _persist() -> None:
+    """Write the state file if it changed since the last write. Caller holds _lock.
+    Never raises: losing the state file only costs a fresh window."""
+    global _last_saved
+    text = json.dumps(_state.to_dict(), sort_keys=True)
+    if text == _last_saved:
+        return
+    try:
+        app.HOST.write_text(app.AUTOTUNE_STATE_FILE, text + '\n')
+        _last_saved = text
+    except Exception:
+        logger.warning('could not write %s; auto-tune state will not survive a restart',
+                       app.AUTOTUNE_STATE_FILE, exc_info=True)
 
 def snapshot() -> dict[str, Any]:
     with _lock:
+        if not _loaded:
+            _restore()
         return {'status': _state.status,
                 'samples': len(_state.samples),
                 'window_gain': _state.window_gain,
                 'last_decision': _state.last_decision,
                 'verifying': _state.pending is not None}
 
-def _reset_state_for_tests() -> None:
-    global _state
+def _reset_state_for_tests(loaded: bool = True) -> None:
+    """Fresh in-memory state. loaded=False simulates a monitor restart: the next
+    step restores from AUTOTUNE_STATE_FILE."""
+    global _state, _loaded, _last_saved
     with _lock:
         _state = _State()
+        _loaded = loaded
+        _last_saved = None
 
 
 # ── The poll step ────────────────────────────────────────────────────────────
@@ -267,58 +343,70 @@ def _apply(st: _State, text: str, old: str, new: int, reason: str, now: float) -
     st.status = f'set gain {new}; verifying'
 
 def autotune_step(now_fn: Callable[[], float] = time.time) -> None:
-    now = now_fn()
     with _lock:
-        st = _state
-        if st.pending is not None:
-            _verify(st, now)       # a change in flight is verified even if just disabled
-            return
-        cfg = load_config()
-        if not cfg['enabled']:
-            if not st.status.startswith('disabled after rollback'):
-                st.status = 'disabled'
-            st.reset_window(None)
-            return
-        text = app.HOST.read_text(app.AIRSPY_DEFAULT)
-        if text is None:
-            st.status = f'cannot read {app.AIRSPY_DEFAULT}'
-            return
-        gain = parse_airspy_options(text)['gain']
-        if gain not in AIRSPY_GAINS:
-            st.status = 'gain is auto — save a fixed gain (0–21) to start auto-tune'
-            st.reset_window(None)
-            return
-        stats = _read_stats()
-        buckets = stats.get('rssi_buckets') if stats else None
+        if not _loaded:
+            _restore()
         try:
-            ts = float((stats or {}).get('now') or 0)
-        except (TypeError, ValueError):
-            ts = 0.0
-        if not stats or not isinstance(buckets, list) or now - ts > STATS_MAX_AGE_S:
-            st.status = 'waiting for fresh airspy stats.json'
-            return
-        if _stats_gain(stats) != gain:
-            st.status = f'decoder reports gain {stats.get("gain")}, config says {gain} — waiting'
-            st.reset_window(gain)
-            return
-        if st.window_gain != gain:
-            st.reset_window(gain)
-        if ts - st.last_change_ts < cfg['settle_s']:
-            st.status = f'settling after change to gain {gain}'
-            return
-        if st.samples and st.samples[-1][0] >= ts:
-            return                                          # same stats.json as last poll
-        st.samples.append((ts, [int(n) for n in buckets]))
-        st.samples = st.samples[-cfg['window_min']:]
-        if len(st.samples) < cfg['window_min']:
-            st.status = f'collecting at gain {gain}: {len(st.samples)}/{cfg["window_min"]} min'
-            return
-        pct, total = strong_pct(sum_buckets([b for _, b in st.samples]), cfg['strong_rssi_db'])
-        new, reason = decide(pct, total, int(gain), cfg)
-        st.last_decision = {'ts': now, 'gain': gain, 'strong_pct': round(pct, 2),
-                            'messages': total, 'new_gain': new, 'reason': reason}
-        if new is None:
-            st.status = reason
-            st.samples.pop(0)                               # slide: next sample → next decision
-            return
-        _apply(st, text, gain, new, reason, now)
+            _step(now_fn())
+        finally:
+            _persist()
+
+def _step(now: float) -> None:
+    """One poll's worth of auto-tune. Caller holds _lock."""
+    st = _state
+    if st.pending is not None:
+        _verify(st, now)       # a change in flight is verified even if just disabled
+        return
+    cfg = load_config()
+    if not cfg['enabled']:
+        if not st.status.startswith('disabled after rollback'):
+            st.status = 'disabled'
+        st.reset_window(None)
+        return
+    text = app.HOST.read_text(app.AIRSPY_DEFAULT)
+    if text is None:
+        st.status = f'cannot read {app.AIRSPY_DEFAULT}'
+        return
+    gain = parse_airspy_options(text)['gain']
+    if gain not in AIRSPY_GAINS:
+        st.status = 'gain is auto — save a fixed gain (0–21) to start auto-tune'
+        st.reset_window(None)
+        return
+    stats = _read_stats()
+    buckets = stats.get('rssi_buckets') if stats else None
+    try:
+        ts = float((stats or {}).get('now') or 0)
+    except (TypeError, ValueError):
+        ts = 0.0
+    if not stats or not isinstance(buckets, list) or now - ts > STATS_MAX_AGE_S:
+        st.status = 'waiting for fresh airspy stats.json'
+        return
+    if _stats_gain(stats) != gain:
+        st.status = f'decoder reports gain {stats.get("gain")}, config says {gain} — waiting'
+        st.reset_window(gain)
+        return
+    if st.window_gain != gain:
+        st.reset_window(gain)
+    if ts - st.last_change_ts < cfg['settle_s']:
+        st.status = f'settling after change to gain {gain}'
+        return
+    if st.samples and st.samples[-1][0] >= ts:
+        return                                          # same stats.json as last poll
+    # A window is window_min consecutive minutes: drop samples that have aged out
+    # (monitor was down, restored from disk, or the poller backed off).
+    oldest_ok = ts - (cfg['window_min'] * 60 + WINDOW_SLACK_S)
+    st.samples = [(t, b) for t, b in st.samples if t >= oldest_ok]
+    st.samples.append((ts, [int(n) for n in buckets]))
+    st.samples = st.samples[-cfg['window_min']:]
+    if len(st.samples) < cfg['window_min']:
+        st.status = f'collecting at gain {gain}: {len(st.samples)}/{cfg["window_min"]} min'
+        return
+    pct, total = strong_pct(sum_buckets([b for _, b in st.samples]), cfg['strong_rssi_db'])
+    new, reason = decide(pct, total, int(gain), cfg)
+    st.last_decision = {'ts': now, 'gain': gain, 'strong_pct': round(pct, 2),
+                        'messages': total, 'new_gain': new, 'reason': reason}
+    if new is None:
+        st.status = reason
+        st.samples.pop(0)                               # slide: next sample → next decision
+        return
+    _apply(st, text, gain, new, reason, now)

@@ -38,6 +38,7 @@ APP_VERSION    = '1.0.0'  # bump alongside CHANGELOG.md
 CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
 AUTOTUNE_FILE  = os.path.join(os.path.dirname(__file__), 'autotune.json')
+AUTOTUNE_STATE_FILE = os.path.join(os.path.dirname(__file__), 'autotune_state.json')
 READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
 AIRSPY_DEFAULT = '/etc/default/airspy_adsb'

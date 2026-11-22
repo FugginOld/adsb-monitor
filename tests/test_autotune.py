@@ -267,3 +267,113 @@ def test_route_invalid_gain_with_override_keeps_autotune_on(client, fake_host):
 def test_live_hint_marks_autotune(fake_host):
     setup_host(fake_host)
     assert '· auto-tune' in appmod.airspy_live_hint()
+
+
+# ── window / verification survive monitor restarts ───────────────────────────
+def restart():
+    """What a monitor restart does to auto-tune: in-memory state gone, restore on next poll."""
+    autotune._reset_state_for_tests(loaded=False)
+
+
+def saved_state(fake_host):
+    return json.loads(fake_host.files[appmod.AUTOTUNE_STATE_FILE])
+
+
+def test_samples_are_written_to_the_state_file(fake_host):
+    setup_host(fake_host)
+    feed(fake_host, Clock(), hist(50, 50), 21, 2)
+    st = saved_state(fake_host)
+    assert st['window_gain'] == '21' and len(st['samples']) == 2
+
+
+def test_window_survives_a_restart(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    feed(fake_host, clock, hist(50, 50), 21, 2)
+    restart()
+    feed(fake_host, clock, hist(50, 50), 21, 1)                   # 3rd sample completes the window
+    assert 'GAIN=18' in fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+
+
+def test_window_completes_even_when_restarted_after_every_sample(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    for _ in range(3):
+        restart()
+        feed(fake_host, clock, hist(50, 50), 21, 1)
+    assert 'GAIN=18' in fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+
+
+def test_samples_older_than_a_window_are_dropped_after_long_downtime(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    feed(fake_host, clock, hist(50, 50), 21, 2)
+    restart()
+    clock.t += 2 * 3600                                           # monitor down for 2 h
+    feed(fake_host, clock, hist(50, 50), 21, 1)
+    assert appmod.AIRSPY_DEFAULT not in fake_host.writes
+    assert autotune.snapshot()['samples'] == 1
+
+
+def test_restored_samples_at_another_gain_are_dropped(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    feed(fake_host, clock, hist(50, 50), 21, 2)
+    restart()
+    fake_host.files[appmod.AIRSPY_DEFAULT] = CONF.replace('GAIN=21', 'GAIN=19')   # changed by hand meanwhile
+    feed(fake_host, clock, hist(50, 50), 19, 1)
+    assert autotune.snapshot()['samples'] == 1 and autotune.snapshot()['window_gain'] == '19'
+
+
+def test_pending_verification_survives_restart_and_rolls_back(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    feed(fake_host, clock, hist(50, 50), 21, 3)                   # -> 18, pending
+    assert saved_state(fake_host)['pending']['new'] == '18'
+    restart()
+    fake_host.commands[('systemctl', 'is-active', 'airspy_adsb')] = Result(3, 'failed\n', '')
+    fake_host.files[appmod.AIRSPY_STATS] = {}
+    for _ in range(6):
+        clock.t += 60
+        autotune.autotune_step(clock)
+    assert fake_host.files[appmod.AIRSPY_DEFAULT] == CONF          # rolled back after the restart
+    assert json.loads(fake_host.files[appmod.AUTOTUNE_FILE])['enabled'] is False
+    assert saved_state(fake_host)['pending'] is None
+
+
+def test_pending_verification_survives_restart_and_verifies(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    feed(fake_host, clock, hist(50, 50), 21, 3)                   # -> 18, pending
+    restart()
+    feed(fake_host, clock, hist(10, 90), 18, 2)
+    assert 'verified' in autotune.snapshot()['status']
+    assert len(restarts(fake_host)) == 1
+
+
+@pytest.mark.parametrize('bad', [
+    'not json', '{"version": 2, "samples": [[1, [1]]]}',
+    '{"version": 1, "window_gain": "99", "samples": [[1, [1]]]}',
+    '{"version": 1, "window_gain": "21", "samples": "x", "pending": {"ts": "bad"}}',
+    '{"version": 1, "window_gain": "21", "samples": [[1, ["x"]], [2]]}',
+])
+def test_malformed_state_file_is_ignored(fake_host, bad):
+    setup_host(fake_host)
+    fake_host.files[appmod.AUTOTUNE_STATE_FILE] = bad
+    restart()
+    feed(fake_host, Clock(), hist(50, 50), 21, 1)
+    s = autotune.snapshot()
+    assert s['samples'] == 1 and s['verifying'] is False
+
+
+def test_state_file_not_rewritten_when_nothing_changed(fake_host):
+    setup_host(fake_host)
+    clock = Clock()
+    feed(fake_host, clock, hist(2, 98), 21, 1)
+    def writes():
+        return sum(1 for c in fake_host.calls if c[0] == 'write_text' and c[1] == appmod.AUTOTUNE_STATE_FILE)
+    before = writes()
+    for _ in range(4):                                            # 30 s polls, same stats.json
+        clock.t += 30
+        autotune.autotune_step(clock)
+    assert writes() == before
