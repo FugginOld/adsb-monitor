@@ -111,7 +111,7 @@ def get_receiver() -> Any:
 def set_receiver() -> Any:
     try:
         text = app.HOST.read_text(app.READSB_DEFAULT) or ''
-        app.HOST.write_text(app.READSB_DEFAULT, write_receiver_options(text, request.get_json()))
+        app.HOST.write_text(app.READSB_DEFAULT, write_receiver_options(text, request.get_json()), backup=True)
         ok, out = service_action('readsb', 'restart')
         return jsonify({'ok': ok, 'output': out})
     except Exception:
