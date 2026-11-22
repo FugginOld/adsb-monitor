@@ -149,6 +149,26 @@ Set `ADSB_FORCE=1` to skip the compatibility prompt on experimental/unsupported 
 
 ---
 
+## Tests
+
+```bash
+pip install flask psutil pytest
+pytest -q                      # unit + route tests; the host is faked, no SDR needed
+```
+
+`tests/browser/` drives the dashboard in headless Chromium against a fake station
+(settings saves and their verify/rollback toasts, config revert, the feeder list,
+the "no data" badge, escaping, and no page, console or CSP errors). It is skipped
+unless Playwright is installed:
+
+```bash
+pip install pytest-timeout playwright
+python -m playwright install chromium-headless-shell
+pytest -q tests/browser
+```
+
+CI runs both on every pull request to `main`.
+
 ## See also
 
 - [HOWTO.md](HOWTO.md) — step-by-step install and usage guide

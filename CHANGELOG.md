@@ -21,6 +21,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   restores every file the save changed (removing one it created), reloads systemd for
   drop-ins, and restarts again; `.adsb-monitor.bak` stays the last good copy. The save
   toast follows the check (`GET /api/settings/check/<id>`).
+- Browser tests (`tests/browser/`, Playwright + headless Chromium, a CI job on PRs to
+  `main`): login, view switching, Airspy and receiver saves through verified and
+  rolled-back checks, config revert, feeder-list edits, the no-data badge and banner,
+  and escaping of `feeders.ini` labels. Every test also fails on any page error,
+  console error or CSP violation.
 - One-click config revert (Settings → Service control → Config backups): lists managed
   files whose backup differs (`GET /api/config/backups`, paths and times only) and
   restores one (`POST /api/config/revert`) with the same check; the replaced version
