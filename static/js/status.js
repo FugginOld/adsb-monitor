@@ -44,6 +44,9 @@ function makeCard(f) {
     const cls = live?' live':f.last_seen==='no data'?' nodata':'';
     lastSeen = `<span class="last-seen${cls}" title="${esc(flowTip)}">${live?'<i class="ti ti-point-filled" aria-hidden="true"></i> live':esc(f.last_seen)}</span>`;
   }
+  // MLAT sync for a feeder whose MLAT client has no card of its own (dataflow.observe_mlat)
+  const m = f.data && f.data.mlat;
+  if (m) lastSeen += `<span class="mlat-tag${m.ok?' ok':' bad'}" title="${esc(m.detail)}">MLAT${m.ok?'':' !'}</span>`;
   // Compact uptime bars (7 days)
   let uptimeBars = '';
   if (f.uptime_bars && f.uptime_bars.length) {
@@ -92,6 +95,8 @@ async function load() {
     document.getElementById('m-ac').textContent  = d.metrics.aircraft;
     document.getElementById('m-msg').textContent = d.metrics.msg_rate;
     document.getElementById('m-rng').textContent = d.metrics.max_range_nm||'—';
+    document.getElementById('m-rng-sub').textContent =
+      d.metrics.max_range_15m_nm ? `nm · 15-min max ${d.metrics.max_range_15m_nm}` : 'nautical miles';
     const core = d.feeders.filter(f=> CORE_KEYS.includes(f.key));
     const feed = d.feeders.filter(f=>!CORE_KEYS.includes(f.key));
     document.getElementById('core-cards').innerHTML   = core.map(makeCard).join('');
