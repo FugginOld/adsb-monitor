@@ -14,8 +14,8 @@ preflight this app never grants), and is refused outright when the browser's
 add the header (static/index.html).
 
 `login_guard` runs after it and, on the admin port only, requires a logged-in
-session for everything except the login page and its API (and the vendored
-icon font). Until a password is set (`run.py set-password`), nobody can log in
+session for everything except the login page, its script and API (and the
+vendored icon font). Until a password is set (`run.py set-password`), nobody can log in
 and the admin port stays locked; the read-only port is never affected.
 `AdminSessionInterface` signs the session cookie with the key stored next to
 the password hash (system/admin_login.py), so no SECRET_KEY config is needed.
@@ -62,7 +62,7 @@ def csrf_guard() -> Any:
     return None
 
 
-LOGIN_OPEN_PATHS = frozenset({'/login', '/api/login', '/api/login/status'})
+LOGIN_OPEN_PATHS = frozenset({'/login', '/api/login', '/api/login/status', '/static/js/login.js'})
 LOGIN_OPEN_PREFIXES = ('/static/vendor/',)
 
 def login_guard() -> Any:

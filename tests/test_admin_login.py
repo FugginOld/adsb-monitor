@@ -54,7 +54,8 @@ def test_post_needs_login_even_with_header(raw, fake_host):
     assert not any(c[0] == 'run' for c in fake_host.calls)
 
 
-@pytest.mark.parametrize('path', ['/login', '/api/login/status', '/static/vendor/tabler/tabler-icons.min.css'])
+@pytest.mark.parametrize('path', ['/login', '/api/login/status', '/static/js/login.js',
+                                  '/static/vendor/tabler/tabler-icons.min.css'])
 def test_login_page_and_assets_are_open(raw, path):
     assert raw.get(path).status_code == 200
 
@@ -175,3 +176,8 @@ def test_set_password_rejects_short(admin_auth):
     with pytest.raises(ValueError):
         admin_login.set_password('short')
     assert admin_auth.read_text() == before
+
+
+@pytest.mark.parametrize('path', ['/static/js/core.js', '/static/app.css', '/static/index.html'])
+def test_dashboard_assets_need_login(raw, path):
+    assert raw.get(path).status_code == 302
