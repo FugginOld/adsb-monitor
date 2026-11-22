@@ -35,7 +35,7 @@ def feed_files(fake_host, remote_secs=600, status_age=2):
 def test_feed_client_connected(fake_host):
     feed_files(fake_host)
     o = dataflow.observe(ADSBX, NOW)
-    assert o.ok is True and 'feed1.adsbexchange.com' in o.detail
+    assert o.ok is True and o.detail == 'connected to feed1.adsbexchange.com'
 
 
 def test_feed_client_remote_down_even_though_local_978_is_zero_anyway(fake_host):
@@ -304,7 +304,7 @@ def test_alerts_lists_running_feeder_with_no_data(client, fake_host, ledger_db, 
     d = client.get('/api/alerts').get_json()
     assert d['alerts'] == [] and d['any_down'] is False and d['any_alert'] is True
     assert [a['key'] for a in d['data_alerts']] == ['adsbexchange-feed']
-    assert 'not connected to feed1.adsbexchange.com' in d['data_alerts'][0]['detail']
+    assert d['data_alerts'][0]['detail'] == 'not connected to feed1.adsbexchange.com (no data for 5m)'
 
 
 def test_alerts_service_down_is_not_also_a_data_alert(client, fake_host, two_feeders):
