@@ -50,6 +50,15 @@ def admin_auth(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_dataflow_state():
+    """Each test starts with no data-flow timers (system/dataflow.py keeps them in memory)."""
+    from system import dataflow
+    dataflow.reset()
+    yield
+    dataflow.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_version_cache(monkeypatch):
     """Treat the version cache as fresh, so get_versions() (called by /api/status)
     never starts a background refresh_versions thread. Such a thread outlives its

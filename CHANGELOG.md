@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Feeder data-flow alerts: a feeder that is running but has sent no data for 5 minutes
+  gets an amber "no data" badge and a "No data:" line in the alert banner. Sources: the
+  upload connector of the ADSBExchange / adsb.fi feed clients (`stats.prom`), FR24's
+  `monitor.json`, piaware's `status.json`, mlat-client's journal, readsb's decoded
+  messages, and Docker health checks. Short reconnects don't alert. Changes are stored
+  in `history.db` (`dataflow_events`); `GET /api/dataflow/events` lists them, and
+  `/api/alerts` gains `data_alerts` and `any_alert`.
 - Airspy gain auto-tune (off by default; Settings → Airspy SDR). Measures the share of
   DF17 signals near clipping from airspy_adsb's RSSI histogram over a ~15 min window and
   steps a fixed gain to keep it between 0.5 % and 5 %. Verifies each change and rolls back
@@ -64,6 +71,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
 
 ### Fixed
+- FR24 always showed "live": the `fr24feed-status` parser matched the `0 SYNC` text.
+  Last-seen for FR24 and piaware now comes from their status files (see Added).
 - Config writes are atomic: every file the monitor writes (`/etc/default/readsb`,
   `/etc/default/airspy_adsb`, `/etc/default/dump978-fa`, feeder configs, `feeders.ini`,
   the bias-tee drop-in, `autotune.json`) goes to a temp file in the same directory, is

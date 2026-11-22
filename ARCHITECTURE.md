@@ -50,10 +50,11 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 | `init_adapter.py` | Host + init-system adapters — the seam to the OS | `Result`, `LinuxHost`, `InitAdapter`, `SystemdAdapter`, `OpenRCAdapter`, `NullAdapter`, `detect_init` |
 | `auth.py` | Read-only vs admin port enforcement, cross-site write guard, admin login guard + session signing | `is_readonly`, `admin_required`, `csrf_guard`, `login_guard`, `AdminSessionInterface` |
 | `admin_login.py` | Admin password hash + session key in `admin_auth.json`, failed-login throttle | `set_password`, `verify`, `secret_key`, `too_many_failures` |
-| `db.py` | Uptime ledger + SQLite history (service_events, metrics, gain_changes) | `record_gain_change`, `get_gain_changes`, `fold_uptime`, `_query_events`, `init_db`, `record_service_event`, `record_metrics`, `get_uptime_bars`, `get_service_uptime_pct`, `get_metrics_history`, `get_service_uptime_str`, `get_docker_uptime_str` |
+| `db.py` | Uptime ledger + SQLite history (service_events, metrics, gain_changes, dataflow_events) | `record_gain_change`, `get_gain_changes`, `fold_uptime`, `_query_events`, `init_db`, `record_service_event`, `record_metrics`, `get_uptime_bars`, `get_service_uptime_pct`, `get_metrics_history`, `get_service_uptime_str`, `get_docker_uptime_str` |
 | `config_io.py` | Feeder config table + per-format read/write adapters | `FEEDER_CONFIGS`, `read_flat_ini`/`write_flat_ini`, `read_shell_vars`/`write_shell_vars`, `read_piaware_config`, `read_docker_env`, `CONFIG_ADAPTERS`, `get_feeder_settings`, `set_feeder_settings`, `load_config`, `get_config_map`, `save_feeders` |
 | `services.py` | Thin status/action wrappers over `INIT`/docker | `systemd_status`, `docker_status`, `service_action` |
-| `feeders.py` | Last-seen + feeder health composition | `get_feeder_last_seen`, `get_fr24_last_seen`, `get_piaware_last_seen`, `FeederHealth`, `feeder_status`, `probe`, `readsb_metrics`, `_dispatch_by_kind` (the one service-vs-docker branch, shared by `feeder_status`/`_feeder_running_for`) |
+| `feeders.py` | Feeder health composition | `FeederHealth`, `feeder_status`, `probe`, `readsb_metrics`, `_dispatch_by_kind` |
+| `dataflow.py` | Is each feeder actually sending data? Per-feeder status sources, the 5-min no-data timer, `dataflow_events` | `observe`, `update` (poller), `current` (routes), `last_seen`, `STALE_AFTER_S` |
 | `sdr_detect.py` | Airspy model detection — no dependency on settings or the presence guard | `MINI_IDS`, `R2_IDS`, `detect_airspy_model` |
 | `sdr_settings.py` | Airspy/receiver/per-band SDR settings parse+write, live hint | `parse_airspy_options` (effective values: G/M flags honoured)/`write_airspy_options` (validates; `-m` R2-only), `set_airspy_gain`, `airspy_live_stats`, `parse_receiver_options`/`write_receiver_options`, `parse_sdr1090`/`write_sdr1090`, `parse_sdr978`/`write_sdr978`, `airspy_live_hint` (imports `sdr_detect`) |
 | `sdr_presence.py` | SDR presence guard — stop/resume decoders on stick un/replug | `enforce_sdr_presence`, `_enforce_sdr`, `_rtl_present`, `_airspy_present` (imports `sdr_settings` for `_opt_in_receiver`, `sdr_detect` for `detect_airspy_model`) |
@@ -72,7 +73,7 @@ calls it once at import time. `GET /` (serves `static/index.html`) stays in
 
 | Blueprint | Routes |
 |---|---|
-| `dashboard.py` | `GET /api/alerts`, `/api/mode`, `/api/ui-config`, `/api/status` |
+| `dashboard.py` | `GET /api/alerts` (service down + `data_alerts`), `/api/dataflow/events`, `/api/mode`, `/api/ui-config`, `/api/status` |
 | `stats.py` | `GET /api/stats/airspy`, `/readsb`, `/bands`, `/aircraft_types`, `/system`, `/history`, `/uptime/history`, `/uptime/<service>` |
 | `versions.py` | `POST /api/versions/refresh` |
 | `settings.py` | `GET`+`POST /api/settings/airspy`, `/receiver`, `/sdr/<band>`, `/feeders`, `/feeder/<key>`; `GET`+`POST /api/autotune` (GET works on both ports) |
@@ -87,7 +88,7 @@ Read routes work on both ports; write routes carry `@admin_required` and
 ## Why `app.py` re-exports everything
 
 The existing test suite (unchanged by the original route-module-split) does
-`import app as appmod` and calls `appmod.get_feeder_last_seen(...)`,
+`import app as appmod` and calls `appmod.probe(...)`,
 `appmod.Result`, etc. — one file, one flat namespace. Rather than touch
 15+ test files, `app.py` re-imports moved names from `system/*.py`
 (`from system.db import fold_uptime, ...`), so `appmod.X` still resolves
@@ -146,6 +147,21 @@ pages a redirect to `/login`. The session cookie is signed with the key stored
 in `admin_auth.json` (`AdminSessionInterface`), so with no password set there
 is no key, no session can exist, and the port stays locked. Routes:
 `routes/login.py`. The read-only port skips the login entirely.
+
+## Feeder data flow
+
+A unit can be `active` while its upload is stalled, so `system/dataflow.py`
+asks each feeder's own status source whether data is moving: the readsb feed
+clients' upload connector in `/run/<key>/stats.prom`, FR24's `monitor.json`,
+piaware's `/run/piaware/status.json`, the newest connect/disconnect/stats line in
+an mlat-client's journal, readsb's decoded-message count, and Docker health
+checks. The poller calls `update()` every 30 s, which keeps one in-memory
+timer per feeder: `pending` while data has been missing for less than
+`STALE_AFTER_S` (5 min), then `stale`, which `/api/alerts` returns as a
+`data_alert` and the card shows as an amber "no data" badge. A reading that
+can't be taken (`unknown`) neither starts nor clears the timer. ok <-> stale
+changes are stored in `dataflow_events` (10-year retention). Routes read the
+poller's latest result through `current()`.
 
 ## Front end
 

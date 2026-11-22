@@ -1,12 +1,13 @@
-"""Dashboard routes: alerts, port mode, UI config, feeder status."""
+"""Dashboard routes: alerts (service down + no data), port mode, UI config, feeder status."""
 from typing import Any
 
 from flask import Blueprint, jsonify
 
 import app
+from system import dataflow
 from system.auth import is_readonly
 from system.config_io import load_config
-from system.db import get_service_uptime_pct, get_uptime_bars
+from system.db import get_dataflow_events, get_service_uptime_pct, get_uptime_bars
 from system.feeders import feeder_status, probe, readsb_metrics
 from system.sdr_settings import airspy_live_hint
 from system.versions import VERSION_SOURCES, _get_installed_version, get_versions
@@ -16,14 +17,27 @@ bp = Blueprint('dashboard', __name__)
 
 @bp.route('/api/alerts')
 def api_alerts() -> Any:
-    """Return any services currently down."""
+    """Services currently down, and running feeders that have sent no data for
+    dataflow.STALE_AFTER_S (`data_alerts`)."""
     feeders = load_config()
-    alerts = []
+    alerts, data_alerts = [], []
     for f in feeders:
         status, detail = feeder_status(f)
         if status != 'ok':
             alerts.append({'key': f['key'], 'label': f['label'], 'detail': detail})
-    return jsonify({'alerts': alerts, 'any_down': len(alerts) > 0})
+            continue
+        flow = dataflow.current(f)
+        if flow['state'] == 'stale':
+            data_alerts.append({'key': f['key'], 'label': f['label'], 'detail': flow['detail'],
+                                'since': flow['since']})
+    return jsonify({'alerts': alerts, 'any_down': len(alerts) > 0,
+                    'data_alerts': data_alerts, 'any_alert': bool(alerts or data_alerts)})
+
+
+@bp.route('/api/dataflow/events')
+def api_dataflow_events() -> Any:
+    """Recent data-flow changes (a feeder going stale or recovering), newest first."""
+    return jsonify({'events': get_dataflow_events(limit=50)})
 
 
 @bp.route('/api/mode')
@@ -71,6 +85,7 @@ def api_status() -> Any:
             'uptime_pct':  uptime_pct,
             'uptime_bars': uptime_bars,
             'last_seen':   health.last_seen,
+            'data':        health.flow,
         }
         if f['key'] in VERSION_SOURCES:  # no source (e.g. dump978-fa) → no pill, not a stuck "checking…"
             entry['version']  = ver.get('installed')
