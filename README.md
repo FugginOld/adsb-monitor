@@ -107,7 +107,7 @@ Set `ADSB_FORCE=1` to skip the compatibility prompt on experimental/unsupported 
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+ (Debian / Raspberry Pi OS bookworm or newer)
 - `flask` + `psutil` (`pip install flask psutil`)
 - `sqlite3` (stdlib)
 - systemd **or** OpenRC (service control); monitor-only mode works without either
