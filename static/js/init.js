@@ -68,6 +68,7 @@ const CLICK_ACTIONS = {
   toggleFeederCfg:      el      => toggleFeederCfg(el.dataset.panel, el),
   saveFeederCfg:        (el, e) => saveFeederCfg(el.dataset.key, el.dataset.panel, el.dataset.toast, e),
   toggleReveal:         el      => toggleReveal(el.dataset.input, el),
+  revertConfig:         el      => revertConfig(el),
   retry:                el      => { const fn = globalThis[el.dataset.fn]; if (typeof fn === 'function') fn(); },
 };
 const CHANGE_ACTIONS = {

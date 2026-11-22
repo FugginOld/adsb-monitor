@@ -56,6 +56,7 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 | `services.py` | Thin status/action wrappers over `INIT`/docker | `systemd_status`, `docker_status`, `service_action` |
 | `feeders.py` | Feeder health composition | `FeederHealth`, `feeder_status`, `probe`, `readsb_metrics`, `_dispatch_by_kind` |
 | `dataflow.py` | Is each feeder actually sending data? Per-feeder status sources, the 5-min no-data timer, `dataflow_events` | `observe`, `update` (poller), `current` (routes), `last_seen`, `STALE_AFTER_S` |
+| `apply_guard.py` | Verify-or-rollback for manual config saves; one-click revert from `.adsb-monitor.bak` | `snapshot`, `restart_and_verify`, `run_check`, `managed_configs`, `list_backups`, `revert` |
 | `sdr_detect.py` | Airspy model detection — no dependency on settings or the presence guard | `MINI_IDS`, `R2_IDS`, `detect_airspy_model` |
 | `sdr_settings.py` | Airspy/receiver/per-band SDR settings parse+write, live hint | `parse_airspy_options` (effective values: G/M flags honoured)/`write_airspy_options` (validates; `-m` R2-only), `set_airspy_gain`, `airspy_live_stats`, `parse_receiver_options`/`write_receiver_options`, `parse_sdr1090`/`write_sdr1090`, `parse_sdr978`/`write_sdr978`, `airspy_live_hint` (imports `sdr_detect`) |
 | `sdr_presence.py` | SDR presence guard — stop/resume decoders on stick un/replug | `enforce_sdr_presence`, `_enforce_sdr`, `_rtl_present`, `_airspy_present` (imports `sdr_settings` for `_opt_in_receiver`, `sdr_detect` for `detect_airspy_model`) |
@@ -77,7 +78,7 @@ calls it once at import time. `GET /` (serves `static/index.html`) stays in
 | `dashboard.py` | `GET /api/alerts` (service down + `data_alerts`), `/api/dataflow/events`, `/api/mode`, `/api/ui-config`, `/api/status` |
 | `stats.py` | `GET /api/stats/airspy`, `/readsb`, `/bands`, `/aircraft_types`, `/system`, `/history`, `/uptime/history`, `/uptime/<service>` |
 | `versions.py` | `POST /api/versions/refresh` |
-| `settings.py` | `GET`+`POST /api/settings/airspy`, `/receiver`, `/sdr/<band>`, `/feeders`, `/feeder/<key>`; `GET`+`POST /api/autotune` (GET works on both ports) |
+| `settings.py` | `GET`+`POST /api/settings/airspy`, `/receiver`, `/sdr/<band>`, `/feeders`, `/feeder/<key>`; `GET`+`POST /api/autotune` (GET works on both ports), `GET /api/settings/check/<id>`, `GET /api/config/backups`, `POST /api/config/revert` |
 | `services.py` | `POST /api/service/<name>/restart` |
 | `stack.py` | `GET /api/stack/updates`; `POST /api/stack/update/<component>`; `GET /api/stack/update/<component>/logs` (all admin-only) |
 | `logs.py` | `GET /api/logs/<key>`, `/api/syslog` |
