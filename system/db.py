@@ -91,6 +91,16 @@ def init_db() -> None:
     )''')
     c.execute('CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(ts)')
     # Airspy gain changes made by auto-tune (and its rollbacks), newest last
+    # Feeder data-flow changes (system/dataflow.py): 'stale' when a feeder has sent
+    # no data for STALE_AFTER_S, 'ok' when it recovers. Transitions only.
+    c.execute('''CREATE TABLE IF NOT EXISTS dataflow_events (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts      REAL NOT NULL,
+        service TEXT NOT NULL,
+        state   TEXT NOT NULL,
+        detail  TEXT NOT NULL
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_dataflow_ts ON dataflow_events(service, ts)')
     c.execute('''CREATE TABLE IF NOT EXISTS gain_changes (
         id       INTEGER PRIMARY KEY AUTOINCREMENT,
         ts       REAL NOT NULL,
@@ -116,6 +126,24 @@ def get_gain_changes(limit: int = 10) -> list[dict[str, Any]]:
     c = conn.cursor()
     c.execute('SELECT ts, old_gain, new_gain, reason FROM gain_changes ORDER BY ts DESC, id DESC LIMIT ?', (limit,))
     rows = [{'ts': r[0], 'old': r[1], 'new': r[2], 'reason': r[3]} for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def record_dataflow_event(service: str, state: str, detail: str) -> None:
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    c.execute('INSERT INTO dataflow_events (ts, service, state, detail) VALUES (?,?,?,?)',
+              (time.time(), service, state, detail[:200]))
+    c.execute('DELETE FROM dataflow_events WHERE ts < ?', (time.time() - 3650 * 86400,))
+    conn.commit()
+    conn.close()
+
+def get_dataflow_events(limit: int = 20) -> list[dict[str, Any]]:
+    """Most recent data-flow changes first."""
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT ts, service, state, detail FROM dataflow_events ORDER BY ts DESC, id DESC LIMIT ?', (limit,))
+    rows = [{'ts': r[0], 'service': r[1], 'state': r[2], 'detail': r[3]} for r in c.fetchall()]
     conn.close()
     return rows
 

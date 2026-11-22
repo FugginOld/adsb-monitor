@@ -35,7 +35,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ign
 # at install time) and fall back to sane defaults when unset.
 # ─────────────────────────────────────────────────────────────────────────────
 
-APP_VERSION    = '1.0.0'  # bump alongside CHANGELOG.md
+APP_VERSION    = '1.1.0'  # bump alongside CHANGELOG.md
 CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
 AUTOTUNE_FILE  = os.path.join(os.path.dirname(__file__), 'autotune.json')
@@ -126,7 +126,6 @@ from system.db import (  # noqa: E402
     get_service_uptime_str, get_docker_uptime_str,
 )
 from system.feeders import (  # noqa: E402
-    FEEDER_STATUS_FILES, get_feeder_last_seen, get_fr24_last_seen, get_piaware_last_seen,
     feeder_status, probe, readsb_metrics,
 )
 from system.stats import (  # noqa: E402

@@ -1,7 +1,8 @@
 """Background poller.
 
 A daemon thread (started in run.py) that runs forever: every 30s it records
-each service's status into the events ledger, samples readsb metrics
+each service's status into the events ledger, checks each feeder's data flow
+(system/dataflow.py), samples readsb metrics
 into the metrics table, and runs the Airspy gain auto-tune (system/autotune.py,
 a no-op unless enabled). This is what populates the uptime history and
 sparklines over time, independent of whether anyone has the dashboard open.
@@ -30,6 +31,7 @@ import time
 from typing import Callable, NoReturn
 
 from system.autotune import autotune_step
+from system import dataflow
 from system.config_io import load_config
 from system.db import record_metrics, record_service_event
 from system.feeders import feeder_status, readsb_metrics
@@ -55,6 +57,18 @@ def _record_feeder_statuses_step() -> None:
     if any_failed:
         raise RuntimeError('one or more feeders failed to record status')
 
+def _check_dataflow_step() -> None:
+    """Advance each feeder's data-flow timer (system/dataflow.py); one feeder's
+    failure doesn't stop the others."""
+    any_failed = False
+    for f in load_config():
+        try:
+            dataflow.update(f)
+        except Exception:
+            any_failed = True
+    if any_failed:
+        raise RuntimeError('one or more feeders failed the data-flow check')
+
 def _sample_metrics_step() -> None:
     m = readsb_metrics()
     record_metrics(m['aircraft'], m['msg_rate'], m['max_range_nm'])
@@ -63,8 +77,8 @@ def _autotune_step() -> None:
     autotune_step()
 
 def _default_steps() -> list[Step]:
-    return [_enforce_sdr_presence_step, _record_feeder_statuses_step, _sample_metrics_step,
-            _autotune_step]
+    return [_enforce_sdr_presence_step, _record_feeder_statuses_step, _check_dataflow_step,
+            _sample_metrics_step, _autotune_step]
 
 def _poll_once(steps: list[Step]) -> int:
     """Run each step once, isolating failures from each other.

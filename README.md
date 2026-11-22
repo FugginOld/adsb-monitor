@@ -9,6 +9,7 @@ A self-hosted web dashboard for monitoring an ADS-B receiver station. Shows live
 | Area | Details |
 |---|---|
 | **Live status** | Active / down badge for every feeder and service, with last-seen time |
+| **Data-flow alerts** | Flags a feeder that is running but has sent no data for 5 minutes (upload disconnected, lost input, stalled client): amber "no data" badge plus a banner line |
 | **Uptime history** | 7-day daily bars + aggregate % per service, backed by SQLite |
 | **Dual-band** | 1090 MHz ADS-B + 978 MHz UAT on two RTL-SDRs, merged onto one map |
 | **Per-band signal** | 1090 block (RSSI / SNR / noise) and 978 block (RSSI), shown only for present bands; Airspy block hidden when absent |
