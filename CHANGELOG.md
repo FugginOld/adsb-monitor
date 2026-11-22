@@ -45,6 +45,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
 
 ### Fixed
+- Map blank in the dashboard after a tar1090 update: the browser kept a cached tar1090
+  `index.html` whose hashed script/style files no longer exist. `/api/ui-config` now
+  returns `tar1090_version`, and the map iframe loads `<tar1090_url>?v=<version>`, so
+  each update gets a new URL.
 - Max range read about 46 % low: readsb's `r_dst` is already in nautical miles, but it
   was multiplied by 0.539957 as if it were kilometres. Range samples stored in
   `history.db` before this fix are low by that factor (×0.54).

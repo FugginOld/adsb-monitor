@@ -9,7 +9,7 @@ from system.config_io import load_config
 from system.db import get_service_uptime_pct, get_uptime_bars
 from system.feeders import feeder_status, probe, readsb_metrics
 from system.sdr_settings import airspy_live_hint
-from system.versions import VERSION_SOURCES, get_versions
+from system.versions import VERSION_SOURCES, _get_installed_version, get_versions
 
 bp = Blueprint('dashboard', __name__)
 
@@ -32,16 +32,22 @@ def api_mode() -> Any:
 
 @bp.route('/api/ui-config')
 def api_ui_config() -> Any:
+    # The dashboard appends this to the map iframe URL (?v=...), so a tar1090
+    # update changes the URL and the browser fetches the new index.html instead
+    # of a cached one whose hashed script/style files no longer exist.
+    tar1090_version = _get_installed_version('tar1090', VERSION_SOURCES['tar1090'])
     if is_readonly():
         base = app.GRAPHS1090_URL_REMOTE
         return jsonify({
             'tar1090_url':       app.TAR1090_URL_REMOTE,
+            'tar1090_version':   tar1090_version,
             'graphs1090_url':    base,
             'graphs1090_airspy': f'{base}/?graph=airspy_snr&timeframe=8h',
         })
     base = app.GRAPHS1090_URL_LOCAL
     return jsonify({
         'tar1090_url':       app.TAR1090_URL_LOCAL,
+        'tar1090_version':   tar1090_version,
         'graphs1090_url':    base,
         'graphs1090_airspy': f'{base}/?graph=airspy_snr&timeframe=8h',
     })
