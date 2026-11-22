@@ -15,7 +15,7 @@ from system.config_io import (
 from system.db import get_gain_changes, record_gain_change
 from system.sdr_detect import detect_airspy_model
 from system.sdr_settings import (
-    R2_RATES, airspy_live_stats, parse_airspy_options, parse_receiver_options, parse_sdr1090,
+    R2_RATES, airspy_live_stats, airspy_settings_error, parse_airspy_options, parse_receiver_options, parse_sdr1090,
     parse_sdr978, write_airspy_options, write_receiver_options, write_sdr1090, write_sdr978,
 )
 from system.services import service_action
@@ -57,10 +57,11 @@ def set_airspy() -> Any:
         if override and d.get('override_autotune') is not True:
             return jsonify({'ok': False, 'error': 'autotune_enabled', 'current_gain': current,
                             'message': f'Auto-tune is on and manages the gain (currently {current}).'}), 409
-        try:
-            write_airspy_options(d, model=detect_airspy_model())
-        except ValueError as e:
-            return jsonify({'ok': False, 'error': str(e)}), 400
+        model = detect_airspy_model()
+        err = airspy_settings_error(d, model)
+        if err:
+            return jsonify({'ok': False, 'error': err}), 400
+        write_airspy_options(d, model=model)
         if override:
             autotune.save_config({'enabled': False})
             record_gain_change(current, new_gain, 'manual override — auto-tune turned off')
@@ -88,11 +89,10 @@ def set_autotune() -> Any:
         d = request.get_json(silent=True)
         if not isinstance(d, dict):
             return jsonify({'ok': False, 'error': 'expected a JSON object'}), 400
-        try:
-            cfg = autotune.save_config(d)
-        except ValueError as e:
-            return jsonify({'ok': False, 'error': str(e)}), 400
-        return jsonify({'ok': True, 'config': cfg})
+        err = autotune.update_error(d)
+        if err:
+            return jsonify({'ok': False, 'error': err}), 400
+        return jsonify({'ok': True, 'config': autotune.save_config(d)})
     except Exception:
         logger.exception("Failed to update auto-tune settings")
         return jsonify({'ok': False, 'error': 'An internal error has occurred.'})

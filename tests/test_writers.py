@@ -177,3 +177,12 @@ def test_write_piaware_only_runs_declared_fields(fake_host):
         'receiver-host': '10.0.0.5', '--show': 'x', 'allow-manual-updates': 'yes'})
     runs = [c[1] for c in fake_host.calls if c[0] == 'run']
     assert runs == [('piaware-config', 'receiver-host', '10.0.0.5')]
+
+
+def test_route_errors_are_fixed_strings_not_echoed_input(client, fake_host):
+    fake_host.files = {appmod.AIRSPY_DEFAULT: MINI_CONF}
+    r = client.post('/api/settings/airspy', json={'gain': '<b>99</b>'})
+    assert r.status_code == 400 and r.get_json()['error'] == 'gain must be 0-21 or auto'
+    r = client.post('/api/autotune', json={'max_gain': '<b>'})
+    assert r.status_code == 400 and '<b>' not in r.get_json()['error']
+    assert appmod.AUTOTUNE_FILE not in fake_host.writes
