@@ -483,6 +483,7 @@
       <button class="vbtn active" id="btn-map"      onclick="showView('map')"><i class="ti ti-map-pin" aria-hidden="true"></i> <span>Map</span></button>
       <button class="vbtn"        id="btn-graphs"   onclick="showView('graphs')"><i class="ti ti-chart-line" aria-hidden="true"></i> <span>Graphs</span></button>
       <button class="vbtn"        id="btn-settings" onclick="showView('settings')"><i class="ti ti-settings" aria-hidden="true"></i> <span>Settings</span></button>
+      <button class="vbtn"        id="btn-logout"   onclick="logout()" title="Log out of the admin port"><i class="ti ti-logout" aria-hidden="true"></i> <span>Log out</span></button>
     </nav>
   </div>
 
@@ -732,7 +733,12 @@
       h.set('X-Requested-With', 'adsb-monitor');
       opts = { ...opts, headers: h };
     }
-    return _fetch(url, opts);
+    // Admin port: a 401 means the login session ended (expired, logged out, or the
+    // password was changed); go to the login page instead of showing broken panels.
+    return _fetch(url, opts).then(r => {
+      if (r.status === 401 && !IS_READONLY) location.replace('/login');
+      return r;
+    });
   };
 }
 
@@ -1683,6 +1689,11 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 let TAR1090_URL='',TAR1090_VERSION='',GRAPHS1090_URL='',GRAPHS1090_AIRSPY='',IS_READONLY=false;
 
+async function logout(){
+  try{await fetch('/api/logout',{method:'POST'});}catch{}
+  location.replace('/login');
+}
+
 function withVersion(url,version){
   if(!version)return url;
   const [base,hash='']=url.split('#');
@@ -1690,7 +1701,7 @@ function withVersion(url,version){
 }
 
 async function init(){
-  try{const m=await fetch('/api/mode').then(r=>r.json());IS_READONLY=m.readonly;if(IS_READONLY)document.getElementById('btn-settings').style.display='none';if(m.version)document.getElementById('app-version').textContent='v'+m.version;}catch{}
+  try{const m=await fetch('/api/mode').then(r=>r.json());IS_READONLY=m.readonly;if(IS_READONLY){document.getElementById('btn-settings').style.display='none';document.getElementById('btn-logout').style.display='none';}if(m.version)document.getElementById('app-version').textContent='v'+m.version;}catch{}
   try{const cfg=await fetch('/api/ui-config').then(r=>r.json());TAR1090_URL=cfg.tar1090_url||`http://${location.hostname}:8504`;TAR1090_VERSION=cfg.tar1090_version||'';GRAPHS1090_URL=cfg.graphs1090_url||`http://${location.hostname}/graphs1090`;GRAPHS1090_AIRSPY=cfg.graphs1090_airspy||GRAPHS1090_URL;}
   catch{TAR1090_URL=`http://${location.hostname}:8504`;GRAPHS1090_URL=`http://${location.hostname}/graphs1090`;}
   // ?v=<tar1090 version>: a tar1090 update changes the URL, so the browser can't

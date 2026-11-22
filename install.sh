@@ -70,5 +70,8 @@ sudo systemctl enable --now adsb-monitor
 echo ""
 echo "✓ Done. Monitor running at http://${PI_IP}:5000"
 echo ""
+echo "The admin port (5000) stays locked until you set its password:"
+echo "  sudo /opt/adsb-monitor/venv/bin/python /opt/adsb-monitor/run.py set-password"
+echo ""
 echo "To add/remove feeders, edit: ${DEST}/feeders.ini"
 echo "Then restart: sudo systemctl restart adsb-monitor"

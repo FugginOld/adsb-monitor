@@ -45,3 +45,8 @@ fi
 
 sudo systemctl restart adsb-monitor
 echo "✓ Updated. Monitor at http://$(hostname -I | awk '{print $1}'):5000"
+if ! sudo test -s "${DEST}/admin_auth.json"; then
+  echo ""
+  echo "!! No admin password is set, so the admin port (5000) is locked. Set one with:"
+  echo "   sudo ${DEST}/venv/bin/python ${DEST}/run.py set-password"
+fi

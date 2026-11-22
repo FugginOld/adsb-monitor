@@ -48,7 +48,8 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 | Module | Responsibility | Key names |
 |---|---|---|
 | `init_adapter.py` | Host + init-system adapters — the seam to the OS | `Result`, `LinuxHost`, `InitAdapter`, `SystemdAdapter`, `OpenRCAdapter`, `NullAdapter`, `detect_init` |
-| `auth.py` | Read-only vs admin port enforcement | `is_readonly`, `admin_required` |
+| `auth.py` | Read-only vs admin port enforcement, cross-site write guard, admin login guard + session signing | `is_readonly`, `admin_required`, `csrf_guard`, `login_guard`, `AdminSessionInterface` |
+| `admin_login.py` | Admin password hash + session key in `admin_auth.json`, failed-login throttle | `set_password`, `verify`, `secret_key`, `too_many_failures` |
 | `db.py` | Uptime ledger + SQLite history (service_events, metrics, gain_changes) | `record_gain_change`, `get_gain_changes`, `fold_uptime`, `_query_events`, `init_db`, `record_service_event`, `record_metrics`, `get_uptime_bars`, `get_service_uptime_pct`, `get_metrics_history`, `get_service_uptime_str`, `get_docker_uptime_str` |
 | `config_io.py` | Feeder config table + per-format read/write adapters | `FEEDER_CONFIGS`, `read_flat_ini`/`write_flat_ini`, `read_shell_vars`/`write_shell_vars`, `read_piaware_config`, `read_docker_env`, `CONFIG_ADAPTERS`, `get_feeder_settings`, `set_feeder_settings`, `load_config`, `get_config_map`, `save_feeders` |
 | `services.py` | Thin status/action wrappers over `INIT`/docker | `systemd_status`, `docker_status`, `service_action` |
@@ -137,6 +138,14 @@ request by `make_tagged_app(port)` (a WSGI wrapper), and reads it back via
 `system/auth.py:is_readonly()`. Two `ThreadedWSGIServer`s run the same
 Flask app — one per port — so a single process serves both the full-access
 admin port and the read-only port.
+
+On the admin port, `login_guard` (a `before_request` hook, after `csrf_guard`)
+requires a session with `admin: True` for everything except `/login`,
+`/api/login`, `/api/login/status` and `/static/vendor/`; API calls get a 401,
+pages a redirect to `/login`. The session cookie is signed with the key stored
+in `admin_auth.json` (`AdminSessionInterface`), so with no password set there
+is no key, no session can exist, and the port stays locked. Routes:
+`routes/login.py`. The read-only port skips the login entirely.
 
 ## Deployment
 
