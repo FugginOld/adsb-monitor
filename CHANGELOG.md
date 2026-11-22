@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   in the UI and stored in `history.db` (`gain_changes`). Config: `autotune.json`.
 - `GET`/`POST /api/autotune`.
 
+### Changed
+- Minimum Python is now 3.11 (Debian/Raspberry Pi OS bookworm); CI tests 3.11 and 3.13.
+  3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
+
 ### Fixed
 - Gain set from the UI (or via "Apply recommended gain") was silently ignored: the writer
   never set `G=-g`, so airspy_adsb ran auto gain. Now `G=-g` is always written and

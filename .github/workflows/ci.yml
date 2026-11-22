@@ -22,8 +22,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Floor (README says 3.9+) and a current release.
-        python-version: ['3.9', '3.12']
+        # Floor and current, matched to the Debian / Raspberry Pi OS releases this
+        # runs on: bookworm ships 3.11, trixie 3.13. Keep the floor in sync with
+        # README's "Python 3.11+"; move it when the oldest supported release does.
+        python-version: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
