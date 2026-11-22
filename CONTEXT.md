@@ -24,6 +24,11 @@ For the physical module/route layout (which file each of these lives in), see
   (default 0.5–5 %), one decision per ~15 min window. Changes only GAIN/G, records
   every change in `gain_changes`, verifies the decoder came back at the new gain, and
   on failure restores the old file and disables itself.
+- **Gain override** — a manual gain change while auto-tune is on. Refused (409) unless
+  confirmed; confirming turns auto-tune off and records the change.
+- **Stack update** — re-running a wiedehopf installer (readsb `binary-only`, tar1090,
+  graphs1090) from the dashboard as the transient unit `adsb-update-<component>`; one at a
+  time, result kept by `RemainAfterExit` until the next run.
 - **G / M flags** — the airspy_adsb unit runs `$G $GAIN $M $SAMPLE_RATE`. GAIN only
   takes effect with `G=-g` (empty G = auto gain). `M=-m` passes SAMPLE_RATE as the
   MLAT frequency (12/20/24), Airspy R2 only — on a Mini it stops the decoder starting.
