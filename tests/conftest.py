@@ -60,13 +60,21 @@ def fresh_dataflow_state():
 
 @pytest.fixture(autouse=True)
 def fresh_version_cache(monkeypatch):
-    """Treat the version cache as fresh, so get_versions() (called by /api/status)
-    never starts a background refresh_versions thread. Such a thread outlives its
-    test, records `readsb --version` calls on a later test's FakeHost, and makes
-    real GitHub requests. Tests that want a refresh call invalidate_cache()."""
+    """No test may start a real refresh_versions: it runs on a daemon thread,
+    outlives its test, records `airspy_adsb --version` / `dpkg-query` calls on a
+    later test's FakeHost, and makes real GitHub requests. So the cache is marked
+    fresh (get_versions() won't spawn one) and refresh_versions is a no-op
+    everywhere it is imported (routes/versions.py, the stack-update finisher, app).
+    Tests that care about refreshes monkeypatch it again themselves."""
     import time
+    import routes.versions as rv
     import system.versions as versions
+    def no_refresh(*_a, **_k):
+        return None
     monkeypatch.setattr(versions, '_version_ts', time.time())
+    monkeypatch.setattr(versions, 'refresh_versions', no_refresh)
+    monkeypatch.setattr(rv, 'refresh_versions', no_refresh)
+    monkeypatch.setattr(appmod, 'refresh_versions', no_refresh)
 
 
 @pytest.fixture(autouse=True)
