@@ -59,13 +59,20 @@ COMPONENTS: dict[str, dict[str, Any]] = {
 
 # Positional params: $1 = URL, $2.. = installer args. Downloads to a temp file
 # first (a truncated download must not be executed half-way), then runs it.
+# Afterwards always `systemctl daemon-reload`: installers replace unit files
+# without reloading (readsb-install.sh binary-only copies readsb.service and
+# leaves NeedDaemonReload=yes), and a reload is harmless if nothing changed.
+# The installer's status is what the unit exits with, not the reload's.
 RUNNER = (
     'set -u; t=$(mktemp) || exit 1; trap \'rm -f "$t"\' EXIT; '
     'url=$1; shift; echo "[adsb-monitor] fetching $url"; '
     'if ! curl -fsSL --retry 2 -o "$t" "$url" || [ ! -s "$t" ]; then '
     'echo "[adsb-monitor] download failed: $url"; exit 1; fi; '
     'echo "[adsb-monitor] running installer $*"; bash "$t" "$@" </dev/null; rc=$?; '
-    'echo "[adsb-monitor] installer exited with status $rc"; exit $rc'
+    'echo "[adsb-monitor] installer exited with status $rc"; '
+    'echo "[adsb-monitor] reloading systemd units"; '
+    'systemctl daemon-reload || echo "[adsb-monitor] warning: systemctl daemon-reload failed"; '
+    'exit $rc'
 )
 
 _lock = threading.Lock()

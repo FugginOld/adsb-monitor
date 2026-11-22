@@ -19,6 +19,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   monitor restarting, output in the log window, version check re-run when it finishes.
   `GET /api/stack/updates`, `POST /api/stack/update/<component>`,
   `GET /api/stack/update/<component>/logs` (admin port only; needs systemd).
+  Every run ends with `systemctl daemon-reload`, since installers replace unit files
+  (readsb's `binary-only` copies `readsb.service`) without reloading.
 - Auto-tune is visible wherever the gain is: an AUTO-TUNE badge on the signal panel, a
   note in the Airspy card, and "· auto-tune" in the sidebar hint.
 - Changing the gain while auto-tune is on asks for confirmation first. The settings API
