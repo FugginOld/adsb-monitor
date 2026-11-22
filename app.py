@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import threading
+from datetime import timedelta
 from typing import Any, Callable
 from flask import Flask, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -39,6 +40,7 @@ CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
 AUTOTUNE_FILE  = os.path.join(os.path.dirname(__file__), 'autotune.json')
 AUTOTUNE_STATE_FILE = os.path.join(os.path.dirname(__file__), 'autotune_state.json')
+ADMIN_AUTH_FILE = os.path.join(os.path.dirname(__file__), 'admin_auth.json')  # run.py set-password
 READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
 AIRSPY_DEFAULT = '/etc/default/airspy_adsb'
@@ -76,9 +78,21 @@ INIT = detect_init(HOST)
 
 _request_port = threading.local()
 
-from system.auth import is_readonly, admin_required, csrf_guard  # noqa: E402
+from system.auth import (  # noqa: E402
+    AdminSessionInterface, admin_required, csrf_guard, is_readonly, login_guard,
+)
 
+# Admin login session: cookie signed with the key in admin_auth.json. Plain http
+# on the LAN, so no Secure flag; SameSite=Strict keeps it off cross-site requests.
+app.session_interface = AdminSessionInterface()
+app.config.update(
+    SESSION_COOKIE_NAME='adsb_monitor_admin',
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Strict',
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
 app.before_request(csrf_guard)
+app.before_request(login_guard)
 
 # ── Re-exports from system/*.py ─────────────────────────────────────────────
 # Every name below moved into system/*.py during the route-module-split
