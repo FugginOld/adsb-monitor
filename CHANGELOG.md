@@ -33,6 +33,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   auto-tune off (so it doesn't walk the gain back) and is recorded in the gain history.
 
 ### Security
+- Content-Security-Policy on HTML pages (`script-src 'self'`, `object-src 'none'`,
+  `frame-src` limited to http/https for the map and graphs) plus
+  `X-Content-Type-Options: nosniff`. Inline scripts and `on*=` handlers were removed
+  to allow it (see Changed).
+- Dashboard templates HTML-escape every server-provided string (feeder labels, keys,
+  hints and icons from `feeders.ini`, versions, gain-advice reasons, feeder config
+  field labels and options) before inserting it.
 - Admin port login. Port 5000 now asks for a password and is **locked until one is set**
   with `sudo /opt/adsb-monitor/venv/bin/python /opt/adsb-monitor/run.py set-password` (prompts twice, at least 10 characters, no restart needed).
   The password is stored hashed (Werkzeug) with a random session key in `admin_auth.json`
@@ -49,6 +56,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   with curl need `-H 'X-Requested-With: adsb-monitor'`.
 
 ### Changed
+- Front end split: `static/index.html` keeps the markup; styles moved to
+  `static/app.css` and scripts to `static/js/` (`core`, `status`, `settings`,
+  `logs`, `init`, and `login.js` for the login page). Inline handlers became
+  `data-click` / `data-change` attributes dispatched from `init.js`.
 - Minimum Python is now 3.11 (Debian/Raspberry Pi OS bookworm); CI tests 3.11 and 3.13.
   3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
 
@@ -61,6 +72,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   symlinks are written through. Every config save (Settings, auto-tune, config restore)
   also keeps the version it replaced as `<file>.adsb-monitor.bak`. Config restore no
   longer overwrites files in place.
+- Tests no longer start background version-refresh threads that could record
+  commands on a later test's fake host (an occasional `test_service_route` failure).
 - Map blank in the dashboard after a tar1090 update: the browser kept a cached tar1090
   `index.html` whose hashed script/style files no longer exist. `/api/ui-config` now
   returns `tar1090_version`, and the map iframe loads `<tar1090_url>?v=<version>`, so
