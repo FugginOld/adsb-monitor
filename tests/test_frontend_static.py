@@ -21,15 +21,15 @@ def read(p):
 @pytest.mark.parametrize('path', HTML)
 def test_no_inline_scripts_or_handlers(path):
     s = read(path)
-    assert not re.search(r'<script(?![^>]*\bsrc=)[^>]*>', s), 'inline <script> (blocked by the CSP)'
-    assert not re.search(r'\son[a-z]+\s*=', s), 'inline on*= handler (blocked by the CSP)'
-    assert 'javascript:' not in s
+    assert not re.search(r'<script(?![^>]*\bsrc=)[^>]*>', s, re.I), 'inline <script> (blocked by the CSP)'
+    assert not re.search(r'\son[a-z]+\s*=', s, re.I), 'inline on*= handler (blocked by the CSP)'
+    assert 'javascript:' not in s.lower()
 
 
 @pytest.mark.parametrize('path', JS)
 def test_templates_have_no_inline_handlers(path):
     # handlers assigned as properties (el.onclick = fn) are fine; attributes in markup strings are not
-    assert not re.search(r'<[^>`]*\son[a-z]+\s*=\s*["\']', read(path))
+    assert not re.search(r'<[^>`]*\son[a-z]+\s*=\s*["\']', read(path), re.I)
 
 
 def _actions(kind):
