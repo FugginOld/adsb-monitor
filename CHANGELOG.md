@@ -32,11 +32,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   refuses with 409 `autotune_enabled` unless `override_autotune` is set; an override turns
   auto-tune off (so it doesn't walk the gain back) and is recorded in the gain history.
 
+### Security
+- Cross-site write guard: every POST/PUT/PATCH/DELETE must carry
+  `X-Requested-With: adsb-monitor` and is refused when the browser's `Sec-Fetch-Site`
+  is `cross-site` or `same-site`. Before this, any web page opened on the LAN could
+  submit a form to the admin port and restart services, start a stack update or upload
+  a restore. The dashboard adds the header to its own requests; scripts calling the API
+  with curl need `-H 'X-Requested-With: adsb-monitor'`.
+
 ### Changed
 - Minimum Python is now 3.11 (Debian/Raspberry Pi OS bookworm); CI tests 3.11 and 3.13.
   3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
 
 ### Fixed
+- Max range read about 46 % low: readsb's `r_dst` is already in nautical miles, but it
+  was multiplied by 0.539957 as if it were kilometres. Range samples stored in
+  `history.db` before this fix are low by that factor (×0.54).
 - readsb "latest" version is read from the `stale` branch, the one `readsb-install.sh`
   builds, not `dev`, so the update badge clears after an update.
 - Gain set from the UI (or via "Apply recommended gain") was silently ignored: the writer
