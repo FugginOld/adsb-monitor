@@ -126,7 +126,6 @@ from system.db import (  # noqa: E402
     get_service_uptime_str, get_docker_uptime_str,
 )
 from system.feeders import (  # noqa: E402
-    FEEDER_STATUS_FILES, get_feeder_last_seen, get_fr24_last_seen, get_piaware_last_seen,
     feeder_status, probe, readsb_metrics,
 )
 from system.stats import (  # noqa: E402

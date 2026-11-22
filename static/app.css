@@ -69,12 +69,14 @@ body { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .uptime-pct.bad   { background: var(--err-bg);   color: var(--err-text); }
 .last-seen { font-size: 10px; color: var(--text3); }
 .last-seen.live { color: var(--ok-text); }
+.last-seen.nodata { color: var(--warn-text); }
 .card-actions { display: flex; gap: 4px; }
 
 .badge { font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
 .badge-ok       { background: var(--ok-bg);  color: var(--ok-text); }
 .badge-error    { background: var(--err-bg); color: var(--err-text); }
 .badge-checking { background: var(--chk-bg); color: var(--chk-text); }
+.badge-warn     { background: var(--warn-bg); color: var(--warn-text); }
 
 .action-btn { display: flex; align-items: center; gap: 2px; font-size: 10px; padding: 2px 6px; border-radius: 5px; border: 0.5px solid var(--border); background: transparent; color: var(--text3); cursor: pointer; white-space: nowrap; }
 .action-btn:hover { background: var(--surface2); color: var(--text2); }

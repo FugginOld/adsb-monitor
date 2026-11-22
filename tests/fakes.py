@@ -34,6 +34,10 @@ class FakeHost:
         if raw is None:
             return None
         return json.loads(raw) if isinstance(raw, str) else raw
+    def http_json(self, url, timeout=3):
+        self.calls.append(('http_json', url))
+        raw = self.files.get(url)
+        return json.loads(raw) if isinstance(raw, str) else raw
     def write_text(self, path, data, backup=False):
         self.calls.append(('write_text', path, data))
         self.writes[path] = data

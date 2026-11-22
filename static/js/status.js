@@ -17,8 +17,11 @@ function uptimePctClass(pct) {
 }
 
 function makeCard(f) {
-  const bc = f.status==='ok'?'badge-ok':f.status==='error'?'badge-error':'badge-checking';
-  const bt = f.status==='ok'?'running':f.status==='error'?'stopped':'checking';
+  // Running but no data for dataflow.STALE_AFTER_S -> amber "no data" instead of green.
+  const noData = f.status==='ok' && f.data && f.data.state==='stale';
+  const bc = noData?'badge-warn':f.status==='ok'?'badge-ok':f.status==='error'?'badge-error':'badge-checking';
+  const bt = noData?'no data':f.status==='ok'?'running':f.status==='error'?'stopped':'checking';
+  const flowTip = f.data && f.data.detail ? f.data.detail : 'Last feed activity';
   let hint = f.hint||'';
   if (f.key==='tar1090') hint='Live map embedded';
   let ver='', uptime='', lastSeen='';
@@ -38,7 +41,8 @@ function makeCard(f) {
   }
   if (f.last_seen) {
     const live = f.last_seen === 'live';
-    lastSeen = `<span class="last-seen${live?' live':''}" title="Last feed activity">${live?'<i class="ti ti-point-filled" aria-hidden="true"></i> live':esc(f.last_seen)}</span>`;
+    const cls = live?' live':f.last_seen==='no data'?' nodata':'';
+    lastSeen = `<span class="last-seen${cls}" title="${esc(flowTip)}">${live?'<i class="ti ti-point-filled" aria-hidden="true"></i> live':esc(f.last_seen)}</span>`;
   }
   // Compact uptime bars (7 days)
   let uptimeBars = '';
@@ -58,7 +62,7 @@ function makeCard(f) {
   }
 
   return `<div class="card">
-    <div class="card-top"><span class="card-name"><i class="ti ti-${esc(f.icon||'plug')}" aria-hidden="true"></i>${esc(f.label)}</span><span class="badge ${bc}">${bt}</span></div>
+    <div class="card-top"><span class="card-name"><i class="ti ti-${esc(f.icon||'plug')}" aria-hidden="true"></i>${esc(f.label)}</span><span class="badge ${bc}"${noData?` title="${esc(flowTip)}"`:''}>${bt}</span></div>
     <div class="card-hint">${esc(hint)}</div>
     <div class="card-footer">
       <div class="card-meta">${ver}${uptime}${lastSeen}</div>
@@ -229,7 +233,8 @@ async function loadAirspySignal() {
 
 // ── Alert banner ───────────────────────────────────────────────────────────
 // Polls /api/alerts and shows/hides the top banner listing any service currently
-// down, so problems are visible without scanning every card.
+// down, and any running feeder that has sent no data for 5 min (data_alerts),
+// so problems are visible without scanning every card.
 // ───────────────────────────────────────────────────────────────────────────
 
 async function checkAlerts() {
@@ -237,8 +242,13 @@ async function checkAlerts() {
     const d = await fetch('/api/alerts').then(r=>r.json());
     const banner = document.getElementById('alert-banner');
     const items  = document.getElementById('alert-items');
-    if (d.any_down) {
-      items.textContent = 'Service down: ' + d.alerts.map(a=>`${a.label} (${a.detail})`).join(', ');
+    const parts = [];
+    if (d.alerts && d.alerts.length)
+      parts.push('Service down: ' + d.alerts.map(a=>`${a.label} (${a.detail})`).join(', '));
+    if (d.data_alerts && d.data_alerts.length)
+      parts.push('No data: ' + d.data_alerts.map(a=>`${a.label} (${a.detail})`).join(', '));
+    if (parts.length) {
+      items.textContent = parts.join(' · ');
       banner.classList.add('visible');
     } else {
       banner.classList.remove('visible');

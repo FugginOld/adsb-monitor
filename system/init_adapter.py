@@ -97,6 +97,15 @@ class LinuxHost:
                 return json.load(f)
         except Exception:
             return None
+    def http_json(self, url: str, timeout: float = 3) -> Any | None:
+        """GET a local status endpoint (e.g. fr24feed's monitor.json); None on any failure."""
+        try:
+            import json
+            import urllib.request
+            with urllib.request.urlopen(url, timeout=timeout) as r:  # noqa: S310 (fixed local URLs only)
+                return json.loads(r.read().decode('utf-8', 'replace'))
+        except Exception:
+            return None
     def write_text(self, path: str, data: str, backup: bool = False) -> None:
         self.write_bytes(path, data.encode('utf-8'), backup=backup)
 
