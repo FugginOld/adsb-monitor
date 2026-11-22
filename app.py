@@ -37,6 +37,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ign
 APP_VERSION    = '1.0.0'  # bump alongside CHANGELOG.md
 CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
 DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
+AUTOTUNE_FILE  = os.path.join(os.path.dirname(__file__), 'autotune.json')
 READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
 AIRSPY_DEFAULT = '/etc/default/airspy_adsb'

@@ -47,7 +47,28 @@ def gain_recommendation(stats: dict[str, Any]) -> dict[str, str] | None:
     snr = stats.get('snr', {})
     noise = stats.get('noise', {})
     rssi = stats.get('rssi', {})
-    gain = stats.get('gain', 0)
+    try:
+        gain_f = float(stats.get('gain', 0))
+    except (TypeError, ValueError):
+        gain_f = None                       # e.g. 'auto' — no "try gain N" to offer
+    gain = int(gain_f) if gain_f is not None else 0
+
+    # Preferred: the same strong-signal % auto-tune acts on (1 dB DF17 RSSI histogram),
+    # so the suggestion and auto-tune never disagree.
+    buckets = stats.get('rssi_buckets')
+    if isinstance(buckets, list) and gain_f is not None:
+        from system.autotune import decide, load_config, strong_pct
+        cfg = load_config()
+        pct, total = strong_pct([int(n) for n in buckets], cfg['strong_rssi_db'])
+        # One 60 s sample: judge it, but don't hold it to the full-window traffic floor.
+        new, reason = decide(pct, total, gain, {**cfg, 'min_messages': min(cfg['min_messages'], 100),
+                                                  'min_gain': 0, 'max_gain': 21})
+        if total and new is not None:
+            action = 'decrease' if new < gain else 'increase'
+            return {'action': action, 'reason': f'{pct:.1f}% of signals near clipping (≥{cfg["strong_rssi_db"]} dB) — try gain {new}'
+                    if action == 'decrease' else f'Only {pct:.1f}% strong signals — try gain {new}'}
+        if total:
+            return {'action': 'ok', 'reason': f'Signal levels look good ({pct:.1f}% strong, SNR {snr.get("median", 0):.1f} dB)'}
 
     median_snr   = snr.get('median', 0)
     median_noise = noise.get('median', 0)
@@ -59,12 +80,16 @@ def gain_recommendation(stats: dict[str, Any]) -> dict[str, str] | None:
     # check nags forever and lowering gain never clears it. Fall back to max only if
     # the feed doesn't report p95.
     sat_rssi = p95_rssi or max_rssi
+    # With a non-numeric gain (auto) there's no current value to step from, so
+    # say which way to go without a "try gain N" the Apply button would act on.
+    def _try(n: int) -> str:
+        return f' — try gain {n}' if gain_f is not None else ' — set a fixed gain'
     if sat_rssi >= 67:
-        return {'action': 'decrease', 'reason': f'Strong signals near saturation (RSSI {sat_rssi:.0f} dB) — try gain {max(0, int(gain)-2)}'}
+        return {'action': 'decrease', 'reason': f'Strong signals near saturation (RSSI {sat_rssi:.0f} dB){_try(max(0, gain-2))}'}
     elif median_snr < 8:
-        return {'action': 'increase', 'reason': f'Low median SNR ({median_snr:.1f} dB) — try gain {min(21, int(gain)+2)}'}
+        return {'action': 'increase', 'reason': f'Low median SNR ({median_snr:.1f} dB){_try(min(21, gain+2))}'}
     elif median_noise > 45:
-        return {'action': 'decrease', 'reason': f'High noise floor ({median_noise:.0f} dB) — try gain {max(0, int(gain)-2)}'}
+        return {'action': 'decrease', 'reason': f'High noise floor ({median_noise:.0f} dB){_try(max(0, gain-2))}'}
     else:
         return {'action': 'ok', 'reason': f'Signal levels look good (SNR {median_snr:.1f} dB, noise {median_noise:.0f} dB)'}
 

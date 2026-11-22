@@ -504,19 +504,14 @@
             <div style="font-size:12px;color:var(--text2);" id="airspy-model-info">Detecting device...</div>
             <div class="field-row">
               <div class="field">
-                <label class="field-label" for="airspy-gain">Gain (0–21)</label>
-                <input type="number" id="airspy-gain" min="0" max="21" value="21">
+                <label class="field-label" for="airspy-gain">Gain</label>
+                <select id="airspy-gain"><option value="auto">auto</option></select>
                 <div class="field-hint">Each step ≈ 3 dB. Reduce if overloading.</div>
               </div>
               <div class="field">
-                <div class="field-label" id="airspy-rate-label">Sample Rate &nbsp;<button type="button" style="font-size:10px;padding:1px 7px;border-radius:5px;border:.5px solid var(--border);background:var(--blue-bg);color:var(--blue);cursor:pointer;" onclick="useRecommendedRate()">use recommended</button></div>
-                <select id="airspy-rate" aria-labelledby="airspy-rate-label">
-                  <option value="6">6 MSPS — Mini (recommended)</option>
-                  <option value="3">3 MSPS — Mini</option>
-                  <option value="12">12 MSPS — R2 (recommended)</option>
-                  <option value="20">20 MSPS — R2 max</option>
-                </select>
-                <div class="field-hint">Mini: 6 or 3 MSPS &nbsp;|&nbsp; R2: 12 or 20 MSPS</div>
+                <label class="field-label" for="airspy-rate">MLAT frequency (-m)</label>
+                <select id="airspy-rate"><option value="">decoder default</option></select>
+                <div class="field-hint" id="airspy-rate-hint">R2 only (12 / 20 / 24 MHz). A Mini always uses the decoder default.</div>
               </div>
             </div>
             <div class="field">
@@ -526,6 +521,29 @@
             <div class="btn-row">
               <button class="btn btn-primary" onclick="saveAirspy(event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save &amp; restart</button>
               <span class="toast" role="status" id="airspy-toast"></span>
+            </div>
+            <div class="field" style="margin-top:10px;border-top:.5px solid var(--border);padding-top:10px;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;cursor:pointer;">
+                <input type="checkbox" id="autotune-enabled"> Auto-tune gain
+              </label>
+              <div class="field-hint">Every ~15 min, measures the share of signals near clipping and steps a fixed gain down (or up) to keep it between the thresholds. Needs a fixed gain to start from. Rolls back and turns itself off if airspy_adsb doesn't come back at the new gain.</div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label" for="autotune-min">Min gain</label>
+                <input type="number" id="autotune-min" min="0" max="21" value="0">
+              </div>
+              <div class="field">
+                <label class="field-label" for="autotune-max">Max gain</label>
+                <input type="number" id="autotune-max" min="0" max="21" value="21">
+              </div>
+            </div>
+            <div class="field-hint" id="autotune-thresholds"></div>
+            <div style="font-size:12px;color:var(--text2);margin-top:4px;" id="autotune-status" role="status">—</div>
+            <ul style="font-size:11px;color:var(--text3);margin:4px 0 0;padding-left:16px;" id="autotune-history"></ul>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveAutotune(event)"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save auto-tune</button>
+              <span class="toast" role="status" id="autotune-toast"></span>
             </div>
           </div>
         </div>
@@ -857,6 +875,8 @@ async function load() {
   loadSparklines();
   // System stats
   loadSystemStats();
+  // Auto-tune state first, so the signal panel knows whether to offer Apply
+  await loadAutotune();
   // Signal stats
   loadSignalStats();
 }
@@ -945,7 +965,11 @@ async function loadAirspySignal() {
       el.className = `gain-rec ${rec.action}`;
       el.innerHTML = `<i class="ti ti-${rec.action==='ok'?'check':'alert-triangle'}" aria-hidden="true"></i> ${rec.reason}`;
       el.classList.remove('hidden');
-      if (rec.action !== 'ok') {
+      if (rec.action !== 'ok' && _autotuneEnabled) {
+        _gainRecommendedValue = null;
+        btn.classList.add('hidden');
+        el.append(' (auto-tune is on)');
+      } else if (rec.action !== 'ok') {
         // Extract suggested gain from reason string e.g. "try gain 19"
         const m = rec.reason.match(/try gain (\d+)/);
         if (m) {
@@ -1088,20 +1112,24 @@ async function loadSettings() {
   if (settingsLoaded) return;
   settingsLoaded=true;
   loadSdrSettings();   // 1090 / 978 gain + bias-tee
+  loadAutotune();
   // Airspy
   try {
     const r=await fetch('/api/settings/airspy').then(r=>r.json());
     if(r.ok){
-      document.getElementById('airspy-gain').value=r.settings.gain;
-      document.getElementById('airspy-rate').value=r.settings.sample_rate;
-      document.getElementById('airspy-options').value=r.settings.options;
-      const model=r.settings.model||'unknown';
-      const rec=r.settings.recommended_sample_rate;
-      if(rec) _recommendedRate=rec;
-      const mismatch=rec&&r.settings.sample_rate!==rec;
-      document.getElementById('airspy-model-info').innerHTML=
-        `Detected: <strong>Airspy ${model.toUpperCase()}</strong>`+
-        (mismatch?` &nbsp;<span style="color:var(--err-text);font-size:11px">⚠ recommended rate for ${model} is ${rec} MSPS</span>`:'');
+      const st=r.settings, model=st.model||'unknown';
+      const gSel=document.getElementById('airspy-gain');
+      gSel.replaceChildren(...['auto',...Array.from({length:22},(_,i)=>String(i))].map(v=>new Option(v,v)));
+      gSel.value=st.gain;
+      const rSel=document.getElementById('airspy-rate');
+      rSel.replaceChildren(new Option('decoder default',''),...(st.rate_options||[]).map(v=>new Option(v+' MHz',v)));
+      rSel.value=st.sample_rate||''; rSel.disabled=!(st.rate_options||[]).length;
+      document.getElementById('airspy-options').value=st.options;
+      const info=document.getElementById('airspy-model-info');
+      info.textContent='';
+      info.append('Detected: ');
+      const b=document.createElement('strong'); b.textContent='Airspy '+model.toUpperCase(); info.append(b);
+      if(st.live) info.append(` · live: ${st.live.sample_rate} MSPS, gain ${st.live.gain}${st.gain==='auto'?' (auto)':''}`);
     }
   } catch{}
   // Receiver
@@ -1228,13 +1256,48 @@ async function loadReadsbStats() {
   } catch{body.innerHTML=panelError('Could not load readsb stats','loadReadsbStats');}
 }
 
-let _recommendedRate='6';
-function useRecommendedRate(){document.getElementById('airspy-rate').value=_recommendedRate;}
-
 async function saveAirspy(e){
   const btn=e.target.closest('button');btn.disabled=true;
   try{const r=await fetch('/api/settings/airspy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gain:document.getElementById('airspy-gain').value,sample_rate:document.getElementById('airspy-rate').value,options:document.getElementById('airspy-options').value})}).then(r=>r.json());
   showToast('airspy-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}catch(ex){showToast('airspy-toast',false,'✗ '+ex.message);}
+  btn.disabled=false;
+}
+
+// ── Airspy auto-tune ───────────────────────────────────────────────────────
+// Config + live status + recent changes from /api/autotune. The tuning itself
+// runs server-side in the background poller (system/autotune.py).
+// ───────────────────────────────────────────────────────────────────────────
+
+let _autotuneEnabled=false;
+
+async function loadAutotune(){
+  try{
+    const d=await fetch('/api/autotune').then(r=>r.json());
+    if(!d.ok) return;
+    const c=d.config; _autotuneEnabled=!!c.enabled;
+    const en=document.getElementById('autotune-enabled');
+    if(!en) return;
+    en.checked=c.enabled;
+    document.getElementById('autotune-min').value=c.min_gain;
+    document.getElementById('autotune-max').value=c.max_gain;
+    document.getElementById('autotune-thresholds').textContent=
+      `Lowers gain above ${c.strong_high_pct}% of DF17s at ≥${c.strong_rssi_db} dB, raises it below ${c.strong_low_pct}%. Window ${c.window_min} min, min ${c.min_messages} messages.`;
+    document.getElementById('autotune-status').textContent='Status: '+d.state.status;
+    const ul=document.getElementById('autotune-history');
+    ul.replaceChildren(...d.history.map(h=>{const li=document.createElement('li');
+      li.textContent=`${new Date(h.ts*1000).toLocaleString()}: ${h.old} → ${h.new} — ${h.reason}`;return li;}));
+  }catch{}
+}
+
+async function saveAutotune(e){
+  const btn=e.target.closest('button');btn.disabled=true;
+  try{const r=await fetch('/api/autotune',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      enabled:document.getElementById('autotune-enabled').checked,
+      min_gain:parseInt(document.getElementById('autotune-min').value,10),
+      max_gain:parseInt(document.getElementById('autotune-max').value,10)})}).then(r=>r.json());
+    showToast('autotune-toast',r.ok,r.ok?'✓ Saved':'✗ '+r.error);
+    if(r.ok) loadAutotune();
+  }catch(ex){showToast('autotune-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }
 

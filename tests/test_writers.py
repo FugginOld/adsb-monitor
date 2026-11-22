@@ -99,10 +99,65 @@ def test_piaware_write_via_cmd_issues_config_commands(fake_host):
 # ── write_airspy_options (read existing + write merged) ──────────────────────
 def test_write_airspy_options_merges_and_writes(fake_host):
     fake_host.files = {appmod.AIRSPY_DEFAULT: 'GAIN=21\nSAMPLE_RATE=6\n'}
-    appmod.write_airspy_options({'gain': '30', 'sample_rate': '12', 'options': '-v'})
-    written = fake_host.writes[appmod.AIRSPY_DEFAULT]
-    assert 'GAIN=30' in written
-    assert 'SAMPLE_RATE=12' in written
+    appmod.write_airspy_options({'gain': '15', 'sample_rate': '20', 'options': '-v'}, model='r2')
+    lines = fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+    assert 'GAIN=15' in lines and 'G=-g' in lines
+    assert 'SAMPLE_RATE=20' in lines and 'M=-m' in lines
+    for key in ('AFFINITY=', 'NET=', 'STATS='):   # unit crash-loops without them
+        assert any(line.startswith(key) for line in lines)
+
+
+# The live-host bug: GAIN=11 with G empty ran auto gain; M=-m on a Mini crashed the decoder.
+MINI_CONF = ('GAIN=11\nSAMPLE_RATE=6\nOPTIONS="-v -f 1"\nAFFINITY=0\n'
+             'NET="-l 47787:beast"\nSTATS="-S /run/airspy_adsb/stats.json"\nG=\nM=\n')
+
+def test_write_airspy_sets_gain_flag_so_the_gain_is_used(fake_host):
+    fake_host.files = {appmod.AIRSPY_DEFAULT: MINI_CONF}
+    appmod.write_airspy_options({'gain': '21', 'sample_rate': '6', 'options': '-v -f 1'}, model='mini')
+    lines = fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+    assert 'G=-g' in lines and 'GAIN=21' in lines
+
+
+def test_write_airspy_never_passes_m_flag_on_a_mini(fake_host):
+    fake_host.files = {appmod.AIRSPY_DEFAULT: MINI_CONF}
+    for model in ('mini', 'unknown'):
+        appmod.write_airspy_options({'gain': '21', 'sample_rate': '12', 'options': '-v'}, model=model)
+        lines = fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+        assert 'M=' in lines and 'SAMPLE_RATE=' in lines  # no stray -m, no stray positional
+
+
+def test_write_airspy_auto_gain_is_passed_as_dash_g_auto(fake_host):
+    fake_host.files = {appmod.AIRSPY_DEFAULT: MINI_CONF}
+    appmod.write_airspy_options({'gain': 'auto', 'options': '-v'}, model='mini')
+    lines = fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+    assert 'G=-g' in lines and 'GAIN=auto' in lines
+
+
+@pytest.mark.parametrize('settings, model', [
+    ({'gain': '30'}, 'mini'),                       # out of airspy range
+    ({'gain': '21', 'sample_rate': '6'}, 'r2'),     # not a valid -m value
+    ({'gain': '21', 'options': 'x" ; rm -rf /'}, 'mini'),
+])
+def test_write_airspy_rejects_values_the_decoder_would_choke_on(fake_host, settings, model):
+    fake_host.files = {appmod.AIRSPY_DEFAULT: MINI_CONF}
+    with pytest.raises(ValueError):
+        appmod.write_airspy_options(settings, model=model)
+    assert appmod.AIRSPY_DEFAULT not in fake_host.writes
+
+
+def test_route_set_airspy_bad_gain_is_400_and_not_written(client, fake_host):
+    fake_host.files = {appmod.AIRSPY_DEFAULT: MINI_CONF}
+    r = client.post('/api/settings/airspy', json={'gain': '99'})
+    assert r.status_code == 400 and r.get_json()['ok'] is False
+    assert appmod.AIRSPY_DEFAULT not in fake_host.writes
+
+
+def test_set_airspy_gain_touches_only_gain_lines():
+    from system.sdr_settings import set_airspy_gain
+    before, after = MINI_CONF.splitlines(), set_airspy_gain(MINI_CONF, '19').splitlines()
+    assert len(after) == len(before)
+    assert set(after) - set(before) == {'GAIN=19', 'G=-g'}
+    assert set(before) - set(after) == {'GAIN=11', 'G='}
 
 
 # ── set_receiver route (read + write READSB_DEFAULT) ─────────────────────────

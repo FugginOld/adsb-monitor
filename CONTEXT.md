@@ -13,8 +13,20 @@ For the physical module/route layout (which file each of these lives in), see
 - **Feeder kind** — `service` or `docker`; selects how status/logs/config are read.
 - **Uptime** — fraction of a time window a Feeder was `ok`, folded from recorded
   state-change events in SQLite.
-- **Gain recommendation** — SNR/noise/RSSI thresholds → a suggested ±dB airspy gain
-  change.
+- **Gain recommendation** — a suggested airspy gain change. Uses the **strong-signal %**
+  when stats.json has `rssi_buckets` (so it agrees with auto-tune), else the older
+  SNR/noise/p95-RSSI thresholds.
+- **Strong-signal %** — share of DF17 messages in airspy_adsb's 1 dB `rssi_buckets`
+  histogram at or above `strong_rssi_db` (default 67). A pile-up there means strong
+  aircraft are clipping the ADC: the gain is too high.
+- **Gain auto-tune** — background-poller step (`system/autotune.py`, off by default)
+  that steps a fixed airspy gain to keep the strong-signal % inside a dead band
+  (default 0.5–5 %), one decision per ~15 min window. Changes only GAIN/G, records
+  every change in `gain_changes`, verifies the decoder came back at the new gain, and
+  on failure restores the old file and disables itself.
+- **G / M flags** — the airspy_adsb unit runs `$G $GAIN $M $SAMPLE_RATE`. GAIN only
+  takes effect with `G=-g` (empty G = auto gain). `M=-m` passes SAMPLE_RATE as the
+  MLAT frequency (12/20/24), Airspy R2 only — on a Mini it stops the decoder starting.
 - **Band** — a receive frequency the station decodes: **1090** MHz ADS-B (readsb) or
   **978** MHz UAT (dump978-fa). `get_band_stats()` returns one block per present band
   for the sidebar; presence is detected from config, not hardcoded.
