@@ -6,7 +6,21 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as appmod  # noqa: E402
+from flask.testing import FlaskClient  # noqa: E402
 from fakes import FakeHost  # noqa: E402
+
+
+class DashboardClient(FlaskClient):
+    """Test client that sends the header the dashboard's own fetch calls add.
+
+    Tests of the guard itself use a plain FlaskClient (tests/test_csrf_guard.py).
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.environ_base['HTTP_X_REQUESTED_WITH'] = 'adsb-monitor'
+
+
+appmod.app.test_client_class = DashboardClient
 
 
 @pytest.fixture(autouse=True)
