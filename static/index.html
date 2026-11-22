@@ -721,6 +721,21 @@
 // status/metrics from the API, the Settings forms (read + save), log streaming
 // over SSE, and an init() at the very bottom that wires it up and starts polling.
 
+// Every write carries X-Requested-With; the server refuses writes without it
+// (cross-site request guard, system/auth.py csrf_guard).
+{
+  const _fetch = window.fetch.bind(window);
+  window.fetch = (url, opts = {}) => {
+    const m = (opts.method || 'GET').toUpperCase();
+    if (m !== 'GET' && m !== 'HEAD') {
+      const h = new Headers(opts.headers || {});
+      h.set('X-Requested-With', 'adsb-monitor');
+      opts = { ...opts, headers: h };
+    }
+    return _fetch(url, opts);
+  };
+}
+
 // ── Theme ──────────────────────────────────────────────────────────────────
 // Cycles auto -> dark -> light, persisted in localStorage; applyTheme sets the
 // data-theme attribute the CSS variables key off.

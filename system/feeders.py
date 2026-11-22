@@ -115,7 +115,8 @@ def readsb_metrics() -> dict[str, int]:
         aircraft = [a for a in ac_data.get('aircraft', []) if a.get('seen', 999) < 60]
         metrics['aircraft'] = len(aircraft)
         ranges = [a['r_dst'] for a in aircraft if 'r_dst' in a]
-        if ranges: metrics['max_range_nm'] = round(max(ranges) * 0.539957)
+        # readsb's r_dst is already in nautical miles; no conversion.
+        if ranges: metrics['max_range_nm'] = round(max(ranges))
     stats = app.HOST.read_json(os.path.join(app.READSB_JSON, 'stats.json'))
     if stats:
         msgs = stats.get('last1min', {}).get('messages_valid', 0)

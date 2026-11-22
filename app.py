@@ -76,7 +76,9 @@ INIT = detect_init(HOST)
 
 _request_port = threading.local()
 
-from system.auth import is_readonly, admin_required  # noqa: E402
+from system.auth import is_readonly, admin_required, csrf_guard  # noqa: E402
+
+app.before_request(csrf_guard)
 
 # ── Re-exports from system/*.py ─────────────────────────────────────────────
 # Every name below moved into system/*.py during the route-module-split

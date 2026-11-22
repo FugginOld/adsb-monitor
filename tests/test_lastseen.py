@@ -64,7 +64,7 @@ def test_piaware_last_seen_disconnected(fake_host):
 # ── readsb_metrics (reads aircraft.json + stats.json) ────────────────────────
 def test_readsb_metrics_counts_recent_aircraft_and_range(fake_host):
     aircraft = {'aircraft': [
-        {'seen': 5, 'r_dst': 100.0},   # ~54 nm
+        {'seen': 5, 'r_dst': 100.0},   # readsb reports nm
         {'seen': 10},                  # counted, no range
         {'seen': 999, 'r_dst': 999},   # stale, ignored
     ]}
@@ -76,7 +76,7 @@ def test_readsb_metrics_counts_recent_aircraft_and_range(fake_host):
     }
     m = appmod.readsb_metrics()
     assert m['aircraft'] == 2
-    assert m['max_range_nm'] == 54   # round(100 * 0.539957)
+    assert m['max_range_nm'] == 100  # r_dst is already nm
     assert m['msg_rate'] == 10       # round(600 / 60)
 
 
