@@ -12,7 +12,7 @@ from system.auth import admin_required
 from system.config_io import (
     FEEDER_CONFIGS, get_feeder_settings, load_config, save_feeders, set_feeder_settings,
 )
-from system.db import get_gain_changes
+from system.db import get_gain_changes, record_gain_change
 from system.sdr_detect import detect_airspy_model
 from system.sdr_settings import (
     R2_RATES, airspy_live_stats, parse_airspy_options, parse_receiver_options, parse_sdr1090,
@@ -48,10 +48,23 @@ def set_airspy() -> Any:
         d = request.get_json(silent=True)
         if not isinstance(d, dict):
             return jsonify({'ok': False, 'error': 'expected a JSON object'}), 400
+        # Auto-tune owns the gain while it's on: a different gain is only accepted
+        # with an explicit override, which also turns auto-tune off so it doesn't
+        # walk the gain straight back. Saving other fields with the same gain is fine.
+        current = parse_airspy_options(app.HOST.read_text(app.AIRSPY_DEFAULT) or '')['gain']
+        new_gain = str(d.get('gain', 'auto')).strip().lower()
+        override = autotune.load_config()['enabled'] and new_gain != current
+        if override and d.get('override_autotune') is not True:
+            return jsonify({'ok': False, 'error': 'autotune_enabled', 'current_gain': current,
+                            'message': f'Auto-tune is on and manages the gain (currently {current}).'}), 409
         try:
             write_airspy_options(d, model=detect_airspy_model())
         except ValueError as e:
             return jsonify({'ok': False, 'error': str(e)}), 400
+        if override:
+            autotune.save_config({'enabled': False})
+            record_gain_change(current, new_gain, 'manual override — auto-tune turned off')
+            logger.info('manual Airspy gain %s -> %s; auto-tune turned off', current, new_gain)
         ok, out = service_action('airspy_adsb', 'restart')
         return jsonify({'ok': ok, 'output': out})
     except Exception:

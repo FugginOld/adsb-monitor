@@ -137,6 +137,9 @@
   .band-dot.up { background: #4ade80; } .band-dot.down { background: #f87171; }
   .band-sub { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
   .band-note { font-size: 10px; color: var(--text3); margin-top: 4px; font-style: italic; }
+  .autotune-badge { font-size: 9px; font-weight: 600; letter-spacing: .05em; padding: 1px 6px; border-radius: 5px; background: var(--blue-bg); color: var(--blue); display: inline-flex; align-items: center; gap: 3px; text-transform: uppercase; }
+  .autotune-badge.hidden, .autotune-note.hidden { display: none; }
+  .autotune-note { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: var(--blue-bg); color: var(--blue); display: flex; align-items: center; gap: 6px; margin-top: 6px; }
   .gain-rec { font-size: 11px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; display: flex; align-items: center; gap: 5px; }
   .gain-rec.ok      { background: var(--ok-bg);   color: var(--ok-text); }
   .gain-rec.warn    { background: var(--warn-bg);  color: var(--warn-text); }
@@ -436,7 +439,8 @@
 
   <!-- Signal panel -->
   <div class="signal-panel" id="signal-panel">
-    <div style="font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Airspy signal</div>
+    <div style="font-size:10px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">Airspy signal
+      <span class="autotune-badge hidden" id="autotune-badge" role="status"><i class="ti ti-wand" aria-hidden="true"></i> Auto-tune</span></div>
     <div class="signal-row"><span class="signal-label">RSSI</span><div class="signal-bar-wrap"><div class="signal-bar rssi" id="sig-rssi-bar" style="width:0%"></div></div><span class="signal-val" id="sig-rssi">—</span></div>
     <div class="signal-row"><span class="signal-label">SNR</span><div class="signal-bar-wrap"><div class="signal-bar snr" id="sig-snr-bar" style="width:0%"></div></div><span class="signal-val" id="sig-snr">—</span></div>
     <div class="signal-row"><span class="signal-label">Noise</span><div class="signal-bar-wrap"><div class="signal-bar noise" id="sig-noise-bar" style="width:0%"></div></div><span class="signal-val" id="sig-noise">—</span></div>
@@ -502,6 +506,7 @@
           <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-antenna icon" aria-hidden="true"></i> Airspy SDR<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div style="font-size:12px;color:var(--text2);" id="airspy-model-info">Detecting device...</div>
+            <div class="autotune-note hidden" id="autotune-gain-note" role="status"><i class="ti ti-wand" aria-hidden="true"></i><span id="autotune-gain-note-text">Auto-tune is on and manages the gain.</span></div>
             <div class="field-row">
               <div class="field">
                 <label class="field-label" for="airspy-gain">Gain</label>
@@ -667,6 +672,9 @@
           <div class="scard-header" onclick="toggleCard(this)"><i class="ti ti-refresh icon" aria-hidden="true"></i> Service control<i class="ti ti-chevron-down chevron" aria-hidden="true"></i></div>
           <div class="scard-body">
             <div class="btn-row" id="restart-btns"></div>
+            <div class="field-label" style="margin-top:10px;">Update stack components</div>
+            <div class="btn-row" id="update-btns"><span class="field-hint">Loading…</span></div>
+            <div class="field-hint" id="update-status" role="status"></div>
             <div class="btn-row" style="margin-top:4px">
               <button class="btn btn-secondary" onclick="refreshVersions(event)"><i class="ti ti-refresh" aria-hidden="true"></i> Check for updates now</button>
               <span class="toast" role="status" id="versions-toast"></span>
@@ -1021,11 +1029,7 @@ async function applyRecommendedGain() {
     const cur = await fetch('/api/settings/airspy').then(r=>r.json());
     if (!cur.ok) { btn.disabled=false; return; }
     const payload = { ...cur.settings, gain: String(_gainRecommendedValue) };
-    const r = await fetch('/api/settings/airspy', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    }).then(r=>r.json());
+    const r = await postAirspySettings(payload);
     if (r.ok) {
       document.getElementById('gain-rec').textContent = 'Gain updated — restarting airspy_adsb...';
       setTimeout(loadSignalStats, 5000);
@@ -1113,6 +1117,7 @@ async function loadSettings() {
   settingsLoaded=true;
   loadSdrSettings();   // 1090 / 978 gain + bias-tee
   loadAutotune();
+  loadStackUpdates();
   // Airspy
   try {
     const r=await fetch('/api/settings/airspy').then(r=>r.json());
@@ -1256,10 +1261,34 @@ async function loadReadsbStats() {
   } catch{body.innerHTML=panelError('Could not load readsb stats','loadReadsbStats');}
 }
 
+// POST Airspy settings. While auto-tune is on the server refuses a gain change
+// (409 autotune_enabled) unless override_autotune is set; ask first, and say
+// plainly that overriding turns auto-tune off. Returns the final JSON, or
+// {ok:false, cancelled:true} if the user backed out.
+async function postAirspySettings(payload){
+  const post=body=>fetch('/api/settings/airspy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(async r=>({status:r.status,...(await r.json())}));
+  let r=await post(payload);
+  if(r.status===409&&r.error==='autotune_enabled'){
+    if(!confirm(`Auto-tune is ON and is managing the Airspy gain (currently ${r.current_gain}).
+
+`
+      +`Set the gain to ${payload.gain} manually?
+
+`
+      +`This turns auto-tune OFF so it won't change your gain back. `
+      +`You can turn it on again in Settings → Airspy SDR.`)) return {ok:false,cancelled:true};
+    r=await post({...payload,override_autotune:true});
+    if(r.ok) loadAutotune();
+  }
+  return r;
+}
+
 async function saveAirspy(e){
   const btn=e.target.closest('button');btn.disabled=true;
-  try{const r=await fetch('/api/settings/airspy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gain:document.getElementById('airspy-gain').value,sample_rate:document.getElementById('airspy-rate').value,options:document.getElementById('airspy-options').value})}).then(r=>r.json());
-  showToast('airspy-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}catch(ex){showToast('airspy-toast',false,'✗ '+ex.message);}
+  try{const r=await postAirspySettings({gain:document.getElementById('airspy-gain').value,sample_rate:document.getElementById('airspy-rate').value,options:document.getElementById('airspy-options').value});
+  if(!r.cancelled) showToast('airspy-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));
+  else showToast('airspy-toast',false,'Not saved — auto-tune left on');}catch(ex){showToast('airspy-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }
 
@@ -1275,6 +1304,13 @@ async function loadAutotune(){
     const d=await fetch('/api/autotune').then(r=>r.json());
     if(!d.ok) return;
     const c=d.config; _autotuneEnabled=!!c.enabled;
+    const badge=document.getElementById('autotune-badge');
+    badge.classList.toggle('hidden',!c.enabled);
+    badge.title='Auto-tune: '+d.state.status;
+    const note=document.getElementById('autotune-gain-note');
+    note.classList.toggle('hidden',!c.enabled);
+    document.getElementById('autotune-gain-note-text').textContent=
+      `Auto-tune is on and manages the gain (${d.state.status}). Saving a different gain will ask before turning auto-tune off.`;
     const en=document.getElementById('autotune-enabled');
     if(!en) return;
     en.checked=c.enabled;
@@ -1358,6 +1394,78 @@ async function refreshVersions(e){
   showToast('versions-toast',r.ok,msg);
   settingsLoaded=false; await loadSettings();}catch(ex){showToast('versions-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
+}
+
+// ── Stack updates ──────────────────────────────────────────────────────────
+// One button per component in system/stack_update.py (readsb, tar1090,
+// graphs1090). Each runs wiedehopf's upstream installer as a transient systemd
+// unit on the host; the log modal follows its journal. One update at a time,
+// polled every 5 s while one runs. Admin port only.
+// ───────────────────────────────────────────────────────────────────────────
+
+let _updPoll=null;
+
+async function loadStackUpdates(){
+  const c=document.getElementById('update-btns');
+  if(!c) return;
+  try{
+    const d=await fetch('/api/stack/updates').then(r=>r.json());
+    if(!d.ok) return;
+    if(!d.supported){c.textContent='Updates from the dashboard need systemd — use installer/update-stack.sh.';return;}
+    const comps=Object.entries(d.components);
+    const running=comps.find(([,v])=>v.state==='running');
+    c.replaceChildren(...comps.map(([k,v])=>{
+      const ver=(d.versions||{})[k]||{};
+      const wrap=document.createElement('span');
+      wrap.style.cssText='display:inline-flex;gap:4px;';
+      const b=document.createElement('button');
+      b.className='btn '+(ver.outdated?'btn-primary':'btn-secondary');
+      const icon=document.createElement('i');
+      icon.className='ti '+(v.state==='running'?'ti-loader-2':'ti-download'); icon.setAttribute('aria-hidden','true');
+      const text=v.state==='running'?`Updating ${v.label}…`
+        :ver.outdated?`Update ${v.label} ${ver.installed} → ${ver.latest}`
+        :`${v.label} ${ver.installed||''} · up to date`;
+      b.append(icon,' '+text);
+      b.disabled=!!running;
+      b.onclick=()=>startStackUpdate(k,v,ver);
+      wrap.append(b);
+      if(v.state!=='idle'){
+        const l=document.createElement('button');
+        l.className='btn btn-secondary';
+        l.textContent=v.state==='failed'?'✗ log':v.state==='success'?'✓ log':'log';
+        l.title=`${v.label} update: ${v.state}${v.finished?' at '+v.finished:''}`;
+        l.onclick=()=>openLogs(k,`${v.label} update`,`/api/stack/update/${encodeURIComponent(k)}/logs`);
+        wrap.append(l);
+      }
+      return wrap;
+    }));
+    const st=document.getElementById('update-status');
+    if(running) st.textContent=`Updating ${running[1].label} — started ${running[1].started||''}. You can close this page; it keeps running.`;
+    else{
+      const last=comps.filter(([,v])=>v.state==='success'||v.state==='failed')
+        .map(([,v])=>`${v.label}: ${v.state==='success'?'updated':'FAILED (exit '+(v.exit_status||'?')+') — see log'}${v.finished?' ('+v.finished+')':''}`);
+      st.textContent=last.join(' · ');
+    }
+    if(running&&!_updPoll) _updPoll=setInterval(loadStackUpdates,5000);
+    if(!running&&_updPoll){clearInterval(_updPoll);_updPoll=null;}
+  }catch{}
+}
+
+async function startStackUpdate(key,comp,ver){
+  const what=ver.outdated?`Update ${comp.label} ${ver.installed} → ${ver.latest}?`
+    :`${comp.label} looks up to date${ver.installed?' ('+ver.installed+')':''}. Reinstall it anyway?`;
+  if(!confirm(`${what}
+
+${comp.impact}
+
+`
+    +`This runs wiedehopf's upstream installer as root. Its output opens in the log window.`)) return;
+  try{
+    const r=await fetch(`/api/stack/update/${encodeURIComponent(key)}`,{method:'POST'}).then(r=>r.json());
+    showToast('versions-toast',r.ok,r.ok?`✓ ${r.message}`:`✗ ${r.error}`);
+    if(r.ok) openLogs(key,`${comp.label} update`,`/api/stack/update/${encodeURIComponent(key)}/logs`);
+  }catch(ex){showToast('versions-toast',false,'✗ '+ex.message);}
+  loadStackUpdates();
 }
 
 // ── Feeder connection configs ──────────────────────────────────────────────
@@ -1511,7 +1619,7 @@ This drops the live feed for a few seconds — `
 let activeSSE=null,autoScroll=true;
 function classifyLine(l){const s=l.toLowerCase();if(/error|fatal|failed|failure|crit/.test(s))return 'err';if(/warn|warning/.test(s))return 'warn';if(/started|success|running|active|connected|ok/.test(s))return 'ok';if(/^\s*$/.test(l))return 'dim';return '';}
 function appendLine(text){const term=document.getElementById('terminal');const div=document.createElement('div');div.className='log-line '+classifyLine(text);div.textContent=text;term.appendChild(div);while(term.children.length>500)term.removeChild(term.firstChild);if(autoScroll)term.scrollTop=term.scrollHeight;}
-function openLogs(key,label){closeModal();document.getElementById('modal-title-text').textContent=label+' — logs';document.getElementById('terminal').innerHTML='';document.getElementById('status-text').textContent='Connecting...';document.getElementById('status-dot').className='status-dot inactive';document.getElementById('modal').classList.add('open');lastFocused=document.activeElement;document.querySelector('#modal .modal').focus();autoScroll=true;const term=document.getElementById('terminal');term.onscroll=()=>{autoScroll=term.scrollTop+term.clientHeight>=term.scrollHeight-20;};const es=new EventSource(`/api/logs/${encodeURIComponent(key)}`);activeSSE=es;es.onopen=()=>{document.getElementById('status-dot').className='status-dot';document.getElementById('status-text').textContent=`Streaming: ${label}`;};es.onmessage=e=>{try{appendLine(JSON.parse(e.data));}catch{appendLine(e.data);}};es.onerror=()=>{document.getElementById('status-dot').className='status-dot inactive';document.getElementById('status-text').textContent='Stream closed';es.close();};}
+function openLogs(key,label,url){closeModal();document.getElementById('modal-title-text').textContent=label+' — logs';document.getElementById('terminal').innerHTML='';document.getElementById('status-text').textContent='Connecting...';document.getElementById('status-dot').className='status-dot inactive';document.getElementById('modal').classList.add('open');lastFocused=document.activeElement;document.querySelector('#modal .modal').focus();autoScroll=true;const term=document.getElementById('terminal');term.onscroll=()=>{autoScroll=term.scrollTop+term.clientHeight>=term.scrollHeight-20;};const es=new EventSource(url||`/api/logs/${encodeURIComponent(key)}`);activeSSE=es;es.onopen=()=>{document.getElementById('status-dot').className='status-dot';document.getElementById('status-text').textContent=`Streaming: ${label}`;};es.onmessage=e=>{try{appendLine(JSON.parse(e.data));}catch{appendLine(e.data);}};es.onerror=()=>{document.getElementById('status-dot').className='status-dot inactive';document.getElementById('status-text').textContent='Stream closed';es.close();};}
 function closeModal(){
   if(activeSSE){activeSSE.close();activeSSE=null;}
   document.getElementById('modal').classList.remove('open');

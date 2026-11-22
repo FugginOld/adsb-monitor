@@ -227,3 +227,43 @@ def test_route_post_autotune_blocked_on_readonly_port(client, fake_host):
         appmod._request_port.port = appmod.ADMIN_PORT
     assert r.status_code == 403
     assert appmod.AUTOTUNE_FILE not in fake_host.writes
+
+
+# ── manual gain override while auto-tune is on ───────────────────────────────
+def test_route_gain_change_refused_while_autotune_on(client, fake_host):
+    setup_host(fake_host)                                         # enabled, GAIN=21 G=-g
+    r = client.post('/api/settings/airspy', json={'gain': '12', 'options': '-v -f 1'})
+    assert r.status_code == 409
+    body = r.get_json()
+    assert body['error'] == 'autotune_enabled' and body['current_gain'] == '21'
+    assert appmod.AIRSPY_DEFAULT not in fake_host.writes
+    assert json.loads(fake_host.files[appmod.AUTOTUNE_FILE])['enabled'] is True
+
+
+def test_route_gain_override_turns_autotune_off(client, fake_host):
+    setup_host(fake_host)
+    r = client.post('/api/settings/airspy', json={'gain': '12', 'options': '-v -f 1', 'override_autotune': True})
+    assert r.status_code == 200
+    assert 'GAIN=12' in fake_host.writes[appmod.AIRSPY_DEFAULT].splitlines()
+    assert json.loads(fake_host.files[appmod.AUTOTUNE_FILE])['enabled'] is False
+    row = get_gain_changes()[0]
+    assert (row['old'], row['new']) == ('21', '12') and 'manual override' in row['reason']
+
+
+def test_route_same_gain_saves_without_override(client, fake_host):
+    setup_host(fake_host)                                         # only options change
+    r = client.post('/api/settings/airspy', json={'gain': '21', 'options': '-v -f 2'})
+    assert r.status_code == 200
+    assert json.loads(fake_host.files[appmod.AUTOTUNE_FILE])['enabled'] is True
+
+
+def test_route_invalid_gain_with_override_keeps_autotune_on(client, fake_host):
+    setup_host(fake_host)
+    r = client.post('/api/settings/airspy', json={'gain': '99', 'override_autotune': True})
+    assert r.status_code == 400
+    assert json.loads(fake_host.files[appmod.AUTOTUNE_FILE])['enabled'] is True
+
+
+def test_live_hint_marks_autotune(fake_host):
+    setup_host(fake_host)
+    assert '· auto-tune' in appmod.airspy_live_hint()

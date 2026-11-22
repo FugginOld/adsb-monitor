@@ -12,12 +12,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and disables itself if airspy_adsb doesn't come back at the new gain. Changes are listed
   in the UI and stored in `history.db` (`gain_changes`). Config: `autotune.json`.
 - `GET`/`POST /api/autotune`.
+- Update readsb, tar1090 and graphs1090 from Settings → Service control. Each runs the
+  same wiedehopf installer as `installer/update-stack.sh` (readsb in `binary-only` mode,
+  so fr24feed.ini/rbfeeder.ini and `/etc/default/readsb` are left alone) as a transient
+  systemd unit `adsb-update-<component>`: one at a time, survives the page closing or the
+  monitor restarting, output in the log window, version check re-run when it finishes.
+  `GET /api/stack/updates`, `POST /api/stack/update/<component>`,
+  `GET /api/stack/update/<component>/logs` (admin port only; needs systemd).
+- Auto-tune is visible wherever the gain is: an AUTO-TUNE badge on the signal panel, a
+  note in the Airspy card, and "· auto-tune" in the sidebar hint.
+- Changing the gain while auto-tune is on asks for confirmation first. The settings API
+  refuses with 409 `autotune_enabled` unless `override_autotune` is set; an override turns
+  auto-tune off (so it doesn't walk the gain back) and is recorded in the gain history.
 
 ### Changed
 - Minimum Python is now 3.11 (Debian/Raspberry Pi OS bookworm); CI tests 3.11 and 3.13.
   3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
 
 ### Fixed
+- readsb "latest" version is read from the `stale` branch, the one `readsb-install.sh`
+  builds, not `dev`, so the update badge clears after an update.
 - Gain set from the UI (or via "Apply recommended gain") was silently ignored: the writer
   never set `G=-g`, so airspy_adsb ran auto gain. Now `G=-g` is always written and
   `GAIN=auto` maps to `-g auto`.
