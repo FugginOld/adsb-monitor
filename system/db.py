@@ -90,8 +90,34 @@ def init_db() -> None:
         max_range_nm INTEGER
     )''')
     c.execute('CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(ts)')
+    # Airspy gain changes made by auto-tune (and its rollbacks), newest last
+    c.execute('''CREATE TABLE IF NOT EXISTS gain_changes (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts       REAL NOT NULL,
+        old_gain TEXT NOT NULL,
+        new_gain TEXT NOT NULL,
+        reason   TEXT NOT NULL
+    )''')
     conn.commit()
     conn.close()
+
+def record_gain_change(old_gain: str, new_gain: str, reason: str) -> None:
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    c.execute('INSERT INTO gain_changes (ts, old_gain, new_gain, reason) VALUES (?,?,?,?)',
+              (time.time(), old_gain, new_gain, reason))
+    c.execute('DELETE FROM gain_changes WHERE ts < ?', (time.time() - 3650 * 86400,))
+    conn.commit()
+    conn.close()
+
+def get_gain_changes(limit: int = 10) -> list[dict[str, Any]]:
+    """Most recent gain changes first."""
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT ts, old_gain, new_gain, reason FROM gain_changes ORDER BY ts DESC, id DESC LIMIT ?', (limit,))
+    rows = [{'ts': r[0], 'old': r[1], 'new': r[2], 'reason': r[3]} for r in c.fetchall()]
+    conn.close()
+    return rows
 
 def record_service_event(service: str, status: str) -> None:
     conn = sqlite3.connect(app.DB_FILE)
