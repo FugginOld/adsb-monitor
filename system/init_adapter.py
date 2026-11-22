@@ -20,7 +20,9 @@ reports "service control unavailable".
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -35,6 +37,42 @@ class Result:
     @property
     def ok(self) -> bool:
         return self.code == 0
+
+BACKUP_SUFFIX = '.adsb-monitor.bak'
+
+def _atomic_write(target: str, data: bytes, like: os.stat_result | None) -> None:
+    """Write `data` to `target` via a same-directory temp file + fsync + rename."""
+    d = os.path.dirname(target) or '.'
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=f'.{os.path.basename(target)}.', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        if like is not None:
+            os.chmod(tmp, like.st_mode & 0o7777)
+            try:
+                os.chown(tmp, like.st_uid, like.st_gid)
+            except PermissionError:
+                pass  # not root: keep our own uid; the mode is still copied
+        else:
+            os.chmod(tmp, 0o644)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+    try:
+        dfd = os.open(d, os.O_RDONLY)
+        try:
+            os.fsync(dfd)   # make the rename itself durable
+        finally:
+            os.close(dfd)
+    except OSError:
+        pass
+
 
 class LinuxHost:
     def run(self, cmd: list[str], timeout: int = 10) -> Result:
@@ -59,9 +97,29 @@ class LinuxHost:
                 return json.load(f)
         except Exception:
             return None
-    def write_text(self, path: str, data: str) -> None:
-        with open(path, 'w') as f:
-            f.write(data)
+    def write_text(self, path: str, data: str, backup: bool = False) -> None:
+        self.write_bytes(path, data.encode('utf-8'), backup=backup)
+
+    def write_bytes(self, path: str, data: bytes, backup: bool = False) -> None:
+        """Replace `path` atomically: temp file in the same dir, fsync, rename.
+
+        A power cut or crash leaves either the old file or the new one, never a
+        truncated mix. Mode and owner are copied from the file being replaced (new
+        files get 0644). Writes go to the symlink's target, not over the link.
+        backup=True first keeps the current contents as `<path>.adsb-monitor.bak`
+        (one last-good copy, itself written atomically) when they differ.
+        """
+        target = os.path.realpath(path)
+        try:
+            st: os.stat_result | None = os.stat(target)
+        except FileNotFoundError:
+            st = None
+        if backup and st is not None:
+            with open(target, 'rb') as f:
+                old = f.read()
+            if old != data:
+                _atomic_write(target + BACKUP_SUFFIX, old, st)
+        _atomic_write(target, data, st)
 
 class InitAdapter:
     """Base: status/action/running_since for a named OS service."""

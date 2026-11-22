@@ -88,8 +88,9 @@ def api_restore() -> Any:
                 if not dest:
                     continue  # ignore anything not in the whitelist
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
-                with zf.open(name) as src, open(dest, 'wb') as out:
-                    shutil.copyfileobj(src, out)
+                with zf.open(name) as src:
+                    # atomic, and the file being replaced is kept as <dest>.adsb-monitor.bak
+                    app.HOST.write_bytes(dest, src.read(), backup=True)
                 restored.append(name)
     except zipfile.BadZipFile:
         return jsonify({'ok': False, 'error': 'not a valid backup zip'}), 400

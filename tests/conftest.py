@@ -50,6 +50,17 @@ def admin_auth(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_version_cache(monkeypatch):
+    """Treat the version cache as fresh, so get_versions() (called by /api/status)
+    never starts a background refresh_versions thread. Such a thread outlives its
+    test, records `readsb --version` calls on a later test's FakeHost, and makes
+    real GitHub requests. Tests that want a refresh call invalidate_cache()."""
+    import time
+    import system.versions as versions
+    monkeypatch.setattr(versions, '_version_ts', time.time())
+
+
+@pytest.fixture(autouse=True)
 def fake_host():
     """Swap HOST and INIT for FakeHost/SystemdAdapter around every test, then restore."""
     original_host = appmod.HOST

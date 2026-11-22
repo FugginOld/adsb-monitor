@@ -94,6 +94,24 @@ app.config.update(
 app.before_request(csrf_guard)
 app.before_request(login_guard)
 
+# Pages may only run scripts from /static (no inline JS or eval), so markup
+# injected through a crafted label or message can't execute. Inline style
+# attributes are still used by the markup, hence 'unsafe-inline' for styles only.
+# The map and graphs iframes point at tar1090/graphs1090 on other ports or hosts.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src http: https:; "
+    "object-src 'none'; base-uri 'self'; form-action 'self'"
+)
+
+
+@app.after_request
+def security_headers(resp: Any) -> Any:
+    if resp.mimetype == 'text/html':
+        resp.headers.setdefault('Content-Security-Policy', CONTENT_SECURITY_POLICY)
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    return resp
+
 # ── Re-exports from system/*.py ─────────────────────────────────────────────
 # Every name below moved into system/*.py during the route-module-split
 # (docs/route-module-split.md). What's imported here is only what's still

@@ -141,11 +141,29 @@ admin port and the read-only port.
 
 On the admin port, `login_guard` (a `before_request` hook, after `csrf_guard`)
 requires a session with `admin: True` for everything except `/login`,
-`/api/login`, `/api/login/status` and `/static/vendor/`; API calls get a 401,
+`/api/login`, `/api/login/status`, `/static/js/login.js` and `/static/vendor/`; API calls get a 401,
 pages a redirect to `/login`. The session cookie is signed with the key stored
 in `admin_auth.json` (`AdminSessionInterface`), so with no password set there
 is no key, no session can exist, and the port stays locked. Routes:
 `routes/login.py`. The read-only port skips the login entirely.
+
+## Front end
+
+`static/index.html` is markup only. Styles are in `static/app.css`; scripts are
+classic (non-module) files in `static/js/`, loaded in order and sharing one
+global scope: `core.js` (fetch wrapper, `esc()`, theme, sidebar, sparklines),
+`status.js` (status cards and metrics), `settings.js` (settings view),
+`logs.js` (log modal), `init.js` (event wiring and startup).
+
+There are no inline scripts or `on*=` handlers. An element names its action with
+`data-click="name"` / `data-change="name"` plus `data-*` arguments, and
+`init.js` dispatches from one document-level listener through the
+`CLICK_ACTIONS` / `CHANGE_ACTIONS` tables; markup built from templates uses the
+same attributes. Server-provided strings go through `esc()` before they reach
+`innerHTML`. HTML responses carry a Content-Security-Policy
+(`app.CONTENT_SECURITY_POLICY`) with `script-src 'self'`, so injected markup
+can't run script. `tests/test_frontend_static.py` fails if an inline handler
+comes back or an action has no handler.
 
 ## Deployment
 
