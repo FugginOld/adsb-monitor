@@ -12,15 +12,25 @@ can't set a custom header, and a cross-origin fetch that sets one needs a CORS
 preflight this app never grants), and is refused outright when the browser's
 `Sec-Fetch-Site` says it came from another site. The dashboard's own fetch calls
 add the header (static/index.html).
+
+`login_guard` runs after it and, on the admin port only, requires a logged-in
+session for everything except the login page and its API (and the vendored
+icon font). Until a password is set (`run.py set-password`), nobody can log in
+and the admin port stays locked; the read-only port is never affected.
+`AdminSessionInterface` signs the session cookie with the key stored next to
+the password hash (system/admin_login.py), so no SECRET_KEY config is needed.
 """
 from __future__ import annotations
 
 from functools import wraps
 from typing import Any, Callable
 
-from flask import jsonify, request
+from flask import Flask, jsonify, redirect, request, session
+from flask.sessions import SecureCookieSessionInterface
+from itsdangerous import URLSafeTimedSerializer
 
 import app
+from system import admin_login
 
 
 def is_readonly() -> bool:
@@ -50,3 +60,35 @@ def csrf_guard() -> Any:
     if request.headers.get(CSRF_HEADER) != CSRF_VALUE:
         return jsonify({'ok': False, 'error': f'Missing {CSRF_HEADER} header'}), 403
     return None
+
+
+LOGIN_OPEN_PATHS = frozenset({'/login', '/api/login', '/api/login/status'})
+LOGIN_OPEN_PREFIXES = ('/static/vendor/',)
+
+def login_guard() -> Any:
+    """before_request hook: on the admin port, require a logged-in session."""
+    if is_readonly():
+        return None
+    path = request.path
+    if path in LOGIN_OPEN_PATHS or path.startswith(LOGIN_OPEN_PREFIXES):
+        return None
+    if admin_login.password_is_set() and session.get('admin') is True:
+        return None
+    if path.startswith('/api/'):
+        return jsonify({'ok': False, 'error': 'Login required', 'login': '/login'}), 401
+    return redirect('/login')
+
+
+class AdminSessionInterface(SecureCookieSessionInterface):
+    """Signs the session cookie with admin_login.secret_key(); no key, no session."""
+    def get_signing_serializer(self, app: Flask) -> URLSafeTimedSerializer | None:  # noqa: ARG002
+        key = admin_login.secret_key()
+        if not key:
+            return None
+        return URLSafeTimedSerializer(
+            key,
+            salt=self.salt,
+            serializer=self.serializer,
+            signer_kwargs={'key_derivation': self.key_derivation,
+                           'digest_method': self.digest_method},
+        )

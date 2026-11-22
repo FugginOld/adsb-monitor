@@ -33,6 +33,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   auto-tune off (so it doesn't walk the gain back) and is recorded in the gain history.
 
 ### Security
+- Admin port login. Port 5000 now asks for a password and is **locked until one is set**
+  with `sudo /opt/adsb-monitor/venv/bin/python /opt/adsb-monitor/run.py set-password` (prompts twice, at least 10 characters, no restart needed).
+  The password is stored hashed (Werkzeug) with a random session key in `admin_auth.json`
+  (mode 0600; not part of config backups). Login lasts 30 days in an HttpOnly,
+  SameSite=Strict cookie; "Log out" in the toolbar ends it; setting a new password logs out
+  every session. 5 wrong passwords from one address block it for 15 minutes. The read-only
+  port (5001) is unchanged and needs no login. `GET /login`, `GET /api/login/status`,
+  `POST /api/login`, `POST /api/logout`.
 - Cross-site write guard: every POST/PUT/PATCH/DELETE must carry
   `X-Requested-With: adsb-monitor` and is refused when the browser's `Sec-Fetch-Site`
   is `cross-site` or `same-site`. Before this, any web page opened on the LAN could

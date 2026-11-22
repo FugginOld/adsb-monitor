@@ -44,12 +44,14 @@ def test_same_origin_post_with_header_passes_the_guard(raw, site, monkeypatch):
     headers = {'X-Requested-With': 'adsb-monitor'}
     if site:
         headers['Sec-Fetch-Site'] = site
+    with raw.session_transaction() as sess:   # logged in, so only the CSRF guard decides
+        sess['admin'] = True
     r = raw.post('/api/versions/refresh', headers=headers)
-    assert r.status_code != 403
+    assert r.status_code == 200
 
 
 def test_get_needs_no_header(raw):
-    assert raw.get('/api/mode').status_code == 200
+    assert raw.get('/api/login/status').status_code == 200
 
 
 def test_readsb_max_range_is_r_dst_in_nautical_miles(fake_host):

@@ -424,6 +424,9 @@ whiptail --title "Installation Complete" --msgbox \
 
 SDR: $SDR_MODEL$([ "$DUAL_BAND" = "1" ] && printf '\n978 UAT: dump978 (serial %s) — merged into the map' "$UAT_SERIAL")
 
+Admin login: set a password before using port 5000:
+  sudo $DEST/venv/bin/python $DEST/run.py set-password
+
 Access:
   Monitor:   http://$PI_IP:5000
   Read-only: http://$PI_IP:5001
@@ -437,3 +440,5 @@ Feeders needing keys/claiming:
 
 Enjoy!" 22 70
 echo ""; ok "Done! Monitor: http://$PI_IP:5000"
+echo "Set the admin password (port 5000 is locked until you do):"
+echo "  sudo $DEST/venv/bin/python $DEST/run.py set-password"

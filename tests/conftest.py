@@ -10,17 +10,43 @@ from flask.testing import FlaskClient  # noqa: E402
 from fakes import FakeHost  # noqa: E402
 
 
-class DashboardClient(FlaskClient):
-    """Test client that sends the header the dashboard's own fetch calls add.
+TEST_ADMIN_PASSWORD = 'correct horse battery'
 
-    Tests of the guard itself use a plain FlaskClient (tests/test_csrf_guard.py).
+
+class DashboardClient(FlaskClient):
+    """Test client that behaves like a logged-in dashboard tab.
+
+    Sends the header the dashboard's own fetch calls add, and starts with an
+    admin login session (the admin_auth fixture below has set a password).
+    Tests of the guards themselves use a plain FlaskClient
+    (tests/test_csrf_guard.py, tests/test_admin_login.py).
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.environ_base['HTTP_X_REQUESTED_WITH'] = 'adsb-monitor'
+        with self.session_transaction() as s:
+            s['admin'] = True
 
 
 appmod.app.test_client_class = DashboardClient
+
+
+@pytest.fixture(autouse=True)
+def admin_auth(tmp_path, monkeypatch):
+    """Point ADMIN_AUTH_FILE at a temp file holding TEST_ADMIN_PASSWORD (cheap hash)."""
+    import json
+    from werkzeug.security import generate_password_hash
+    from system import admin_login
+    path = tmp_path / 'admin_auth.json'
+    path.write_text(json.dumps({
+        'password_hash': generate_password_hash(TEST_ADMIN_PASSWORD, method='pbkdf2:sha256:1000'),
+        'secret_key': 'test-secret-key',
+    }))
+    monkeypatch.setattr(appmod, 'ADMIN_AUTH_FILE', str(path))
+    monkeypatch.setattr(admin_login, 'FAIL_DELAY_S', 0)
+    admin_login._failures.clear()
+    yield path
+    admin_login._failures.clear()
 
 
 @pytest.fixture(autouse=True)
