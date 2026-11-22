@@ -227,6 +227,8 @@ def airspy_live_hint() -> str:
         else:
             rate = f'{settings["sample_rate"]} MSPS' if settings['sample_rate'] else 'default rate'
             gain = f'gain {settings["gain"]}'
-        return f'{rate}{" ("+label+")" if label else ""} · {gain} · Beast → :30004'
+        from system.autotune import load_config   # lazy: autotune imports this module
+        tuned = ' · auto-tune' if load_config()['enabled'] else ''
+        return f'{rate}{" ("+label+")" if label else ""} · {gain}{tuned} · Beast → :30004'
     except Exception:
         return 'Beast → :30004'

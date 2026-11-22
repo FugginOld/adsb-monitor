@@ -60,11 +60,12 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 | `versions.py` | Installed-vs-latest version checking, self-contained cache | `VERSION_SOURCES`, `refresh_versions`, `get_versions`, `invalidate_cache` |
 | `logstream.py` | SSE log-follow framing (journalctl / docker logs) | `_sse`, `_journalctl`, `_log_command`, `stream_logs` |
 | `autotune.py` | Airspy gain auto-tune — strong-signal % from `rssi_buckets`, dead band, verify + rollback | `autotune_step`, `decide`, `strong_pct`, `load_config`/`save_config`, `snapshot` (imports `sdr_settings`, `db`, `services`) |
+| `stack_update.py` | Dashboard-triggered stack updates — upstream installer in a transient systemd unit, one at a time | `COMPONENTS`, `start_update`, `status`, `component_state`, `unit_name` |
 | `poll.py` | Background poller — records status + metrics every 30s, runs auto-tune | `background_poll` |
 
 ## `routes/` — Flask Blueprints (thin HTTP glue)
 
-`routes/__init__.py:register_blueprints(app)` registers all seven; `app.py`
+`routes/__init__.py:register_blueprints(app)` registers all eight; `app.py`
 calls it once at import time. `GET /` (serves `static/index.html`) stays in
 `app.py` since it isn't part of the JSON API.
 
@@ -75,6 +76,7 @@ calls it once at import time. `GET /` (serves `static/index.html`) stays in
 | `versions.py` | `POST /api/versions/refresh` |
 | `settings.py` | `GET`+`POST /api/settings/airspy`, `/receiver`, `/sdr/<band>`, `/feeders`, `/feeder/<key>`; `GET`+`POST /api/autotune` (GET works on both ports) |
 | `services.py` | `POST /api/service/<name>/restart` |
+| `stack.py` | `GET /api/stack/updates`; `POST /api/stack/update/<component>`; `GET /api/stack/update/<component>/logs` (all admin-only) |
 | `logs.py` | `GET /api/logs/<key>`, `/api/syslog` |
 | `backup.py` | `GET /api/backup`, `/backup/graphs`; `POST /api/restore`, `/restore/graphs` |
 

@@ -25,7 +25,9 @@ VERSION_SOURCES: dict[str, dict[str, Any]] = {
     'readsb': {
         'installed_cmd': ['readsb', '--version'],
         'installed_re':  r'readsb version:\s*([\d.]+)',
-        'latest_url':    'https://raw.githubusercontent.com/wiedehopf/readsb/dev/debian/changelog',
+        # readsb-install.sh (what the updater runs) builds the `stale` branch by
+        # default, so compare against that branch, not dev.
+        'latest_url':    'https://raw.githubusercontent.com/wiedehopf/readsb/stale/debian/changelog',
         'latest_re':     r'^readsb \(([\d.]+)\)',
     },
     'tar1090': {
