@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-22
+
 ### Added
 - Feeder data-flow alerts: a feeder that is running but has sent no data for 5 minutes
   gets an amber "no data" badge and a "No data:" line in the alert banner. Sources: the
