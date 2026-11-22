@@ -83,21 +83,31 @@ def set_airspy_gain(text: str, gain: str) -> str:
         raise ValueError(f'gain must be 0-21 or auto, not {gain!r}')
     return _set_shell_vars(text, {'G': '-g', 'GAIN': gain})
 
+def airspy_settings_error(settings: dict[str, Any], model: str = 'unknown') -> str | None:
+    """Why airspy_adsb would reject these settings, or None. Returned as a fixed
+    string (not raised) so routes can show it without echoing exception text."""
+    gain = str(settings.get('gain', 'auto')).strip().lower()
+    if gain not in AIRSPY_GAINS and gain != 'auto':
+        return 'gain must be 0-21 or auto'
+    rate = str(settings.get('sample_rate') or '').strip()
+    if model == 'r2' and rate and rate not in R2_RATES:
+        return f'sample rate must be one of {", ".join(R2_RATES)} MHz'
+    options = str(settings.get('options', ''))
+    if '"' in options or '\n' in options:
+        return 'options may not contain quotes or newlines'
+    return None
+
 def write_airspy_options(settings: dict[str, Any], model: str = 'unknown') -> None:
     """Write gain / sample rate / options. Raises ValueError on a value airspy_adsb
     would reject, so a bad form submit can't crash-loop the decoder."""
+    err = airspy_settings_error(settings, model)
+    if err: raise ValueError(err)
     existing = app.HOST.read_text(app.AIRSPY_DEFAULT) or ''
     gain = str(settings.get('gain', 'auto')).strip().lower()
-    if gain not in AIRSPY_GAINS and gain != 'auto':
-        raise ValueError(f'gain must be 0-21 or auto, not {gain!r}')
     rate = str(settings.get('sample_rate') or '').strip()
     if model != 'r2':
         rate = ''                               # -m is R2-only; never pass it otherwise
-    elif rate and rate not in R2_RATES:
-        raise ValueError(f'sample rate must be one of {", ".join(R2_RATES)} MHz')
     options = str(settings.get('options', '-v -f 1 -w 5 -C 95 -E 60'))
-    if '"' in options or '\n' in options:
-        raise ValueError('options may not contain quotes or newlines')
     updates = {'G': '-g', 'GAIN': gain,
                'M': '-m' if rate else '', 'SAMPLE_RATE': rate,
                'OPTIONS': f'"{options}"'}

@@ -69,31 +69,44 @@ _PCT_KEYS = ('strong_high_pct', 'strong_low_pct')
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
-    """Merge `raw` over DEFAULTS and type/range-check it. Raises ValueError."""
+def check_config(raw: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """Merge `raw` over DEFAULTS and type/range-check it.
+
+    Returns (config, None) or (DEFAULTS copy, error message). Errors are
+    returned as fixed strings rather than raised, so routes can show them
+    without echoing exception text (CodeQL py/stack-trace-exposure)."""
     cfg = dict(DEFAULTS)
     for key, val in raw.items():
         if key not in DEFAULTS:
-            raise ValueError(f'unknown setting {key!r}')
+            return dict(DEFAULTS), f'unknown setting {key!r}'
         if key == 'enabled':
-            if not isinstance(val, bool): raise ValueError('enabled must be true/false')
+            if not isinstance(val, bool): return dict(DEFAULTS), 'enabled must be true/false'
             cfg[key] = val
         elif key in _INT_LIMITS:
             lo, hi = _INT_LIMITS[key]
-            try: n = int(val)
-            except (TypeError, ValueError): raise ValueError(f'{key} must be a whole number') from None
-            if isinstance(val, bool) or not lo <= n <= hi or float(val) != n:
-                raise ValueError(f'{key} must be a whole number {lo}-{hi}')
+            msg = f'{key} must be a whole number {lo}-{hi}'
+            if isinstance(val, bool): return dict(DEFAULTS), msg
+            try: n, f = int(val), float(val)
+            except (TypeError, ValueError): return dict(DEFAULTS), msg
+            if f != n or not lo <= n <= hi: return dict(DEFAULTS), msg
             cfg[key] = n
         else:
+            msg = f'{key} must be a number 0-100'
+            if isinstance(val, bool): return dict(DEFAULTS), msg
             try: f = float(val)
-            except (TypeError, ValueError): raise ValueError(f'{key} must be a number') from None
-            if isinstance(val, bool) or not 0 <= f <= 100: raise ValueError(f'{key} must be 0-100')
+            except (TypeError, ValueError): return dict(DEFAULTS), msg
+            if not 0 <= f <= 100: return dict(DEFAULTS), msg
             cfg[key] = f
     if cfg['min_gain'] > cfg['max_gain']:
-        raise ValueError('min_gain must not exceed max_gain')
+        return dict(DEFAULTS), 'min_gain must not exceed max_gain'
     if cfg['strong_low_pct'] >= cfg['strong_high_pct']:
-        raise ValueError('strong_low_pct must be below strong_high_pct')
+        return dict(DEFAULTS), 'strong_low_pct must be below strong_high_pct'
+    return cfg, None
+
+def validate_config(raw: dict[str, Any]) -> dict[str, Any]:
+    """check_config, raising ValueError on an invalid config."""
+    cfg, err = check_config(raw)
+    if err: raise ValueError(err)
     return cfg
 
 def load_config() -> dict[str, Any]:
@@ -105,6 +118,10 @@ def load_config() -> dict[str, Any]:
     except ValueError:
         logger.warning('ignoring invalid %s; using defaults (auto-tune off)', app.AUTOTUNE_FILE)
         return dict(DEFAULTS)
+
+def update_error(updates: dict[str, Any]) -> str | None:
+    """Why `updates` (merged over the saved config) would be rejected, or None."""
+    return check_config({**load_config(), **updates})[1]
 
 def save_config(updates: dict[str, Any]) -> dict[str, Any]:
     cfg = validate_config({**load_config(), **updates})
