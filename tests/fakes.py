@@ -20,6 +20,7 @@ class FakeHost:
         self.default_file = default_file
         self.calls = []
         self.writes = {}
+        self.backups = []
     def run(self, cmd, timeout=10):
         key = tuple(cmd)
         self.calls.append(('run', key))
@@ -33,10 +34,14 @@ class FakeHost:
         if raw is None:
             return None
         return json.loads(raw) if isinstance(raw, str) else raw
-    def write_text(self, path, data):
+    def write_text(self, path, data, backup=False):
         self.calls.append(('write_text', path, data))
         self.writes[path] = data
+        if backup:
+            self.backups.append(path)
         self.files[path] = data
+    def write_bytes(self, path, data, backup=False):
+        self.write_text(path, data.decode('utf-8'), backup=backup)
 
 
 class FakeInitAdapter(InitAdapter):

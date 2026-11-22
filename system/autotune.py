@@ -289,7 +289,7 @@ def _stats_gain(stats: dict[str, Any]) -> str | None:
 def _rollback(st: _State, why: str) -> None:
     p = st.pending
     assert p is not None
-    app.HOST.write_text(app.AIRSPY_DEFAULT, p['prev_text'])
+    app.HOST.write_text(app.AIRSPY_DEFAULT, p['prev_text'], backup=True)
     ok, out = service_action(UNIT, 'restart')
     reason = f'rollback: {why}' + ('' if ok else f' (restart failed: {out.strip()[:120]})')
     record_gain_change(p['new'], p['old'], reason)
@@ -330,7 +330,7 @@ def _verify(st: _State, now: float) -> None:
 
 def _apply(st: _State, text: str, old: str, new: int, reason: str, now: float) -> None:
     new_text = set_airspy_gain(text, str(new))
-    app.HOST.write_text(app.AIRSPY_DEFAULT, new_text)
+    app.HOST.write_text(app.AIRSPY_DEFAULT, new_text, backup=True)
     st.pending = {'ts': now, 'old': old, 'new': str(new), 'prev_text': text, 'new_text': new_text}
     st.last_change_ts = now
     st.reset_window(str(new))

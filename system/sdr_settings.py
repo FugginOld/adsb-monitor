@@ -116,7 +116,7 @@ def write_airspy_options(settings: dict[str, Any], model: str = 'unknown') -> No
     for key, default in {'AFFINITY': '0', 'NET': '"-l 47787:beast -c 127.0.0.1:30004:beast"',
                          'STATS': '"-S /run/airspy_adsb/stats.json"'}.items():
         if key not in v: updates[key] = default
-    app.HOST.write_text(app.AIRSPY_DEFAULT, _set_shell_vars(existing, updates))
+    app.HOST.write_text(app.AIRSPY_DEFAULT, _set_shell_vars(existing, updates), backup=True)
 
 def airspy_live_stats(max_age_s: float = 180) -> dict[str, Any] | None:
     """Gain/sample rate airspy_adsb reports in its stats.json, or None if stale/missing."""
@@ -178,7 +178,7 @@ def _set_receiver_flag(text: str, flag: str, value: str | None) -> str:
 
 def write_sdr1090(gain: str | None, biastee: bool) -> None:
     text = app.HOST.read_text(app.READSB_DEFAULT) or ''
-    app.HOST.write_text(app.READSB_DEFAULT, _set_receiver_flag(text, '--gain', gain or 'auto'))
+    app.HOST.write_text(app.READSB_DEFAULT, _set_receiver_flag(text, '--gain', gain or 'auto'), backup=True)
     serial = _opt_in_receiver(text, '--device') or ''
     if biastee:
         if serial:
@@ -187,7 +187,7 @@ def write_sdr1090(gain: str | None, biastee: bool) -> None:
         else:
             pre = '/bin/sh -c "rtl_biast -d 0 -b 1; true"'
         app.HOST.run(['mkdir', '-p', os.path.dirname(BIASTEE_1090_CONF)])
-        app.HOST.write_text(BIASTEE_1090_CONF, f'[Service]\nExecStartPre={pre}\n')
+        app.HOST.write_text(BIASTEE_1090_CONF, f'[Service]\nExecStartPre={pre}\n', backup=True)
     else:
         app.HOST.run(['rm', '-f', BIASTEE_1090_CONF])
     app.HOST.run(['systemctl', 'daemon-reload'])
@@ -214,7 +214,7 @@ def write_sdr978(gain: str | None, biastee: bool) -> None:
             if biastee:
                 line = re.sub(r'(--sdr driver=rtlsdr,serial=[^\s",]+)', r'\1,biastee=true', line)
         out.append(line)
-    app.HOST.write_text(app.DUMP978_DEFAULT, '\n'.join(out) + '\n')
+    app.HOST.write_text(app.DUMP978_DEFAULT, '\n'.join(out) + '\n', backup=True)
 
 def _fmt_gain(g: Any) -> str:
     try:

@@ -53,6 +53,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   3.9 is end-of-life and no longer available on GitHub's current Ubuntu runners.
 
 ### Fixed
+- Config writes are atomic: every file the monitor writes (`/etc/default/readsb`,
+  `/etc/default/airspy_adsb`, `/etc/default/dump978-fa`, feeder configs, `feeders.ini`,
+  the bias-tee drop-in, `autotune.json`) goes to a temp file in the same directory, is
+  fsynced and renamed over the original. A power cut mid-save can no longer leave a
+  truncated config that stops a decoder from starting. Mode and owner are kept, and
+  symlinks are written through. Every config save (Settings, auto-tune, config restore)
+  also keeps the version it replaced as `<file>.adsb-monitor.bak`. Config restore no
+  longer overwrites files in place.
 - Map blank in the dashboard after a tar1090 update: the browser kept a cached tar1090
   `index.html` whose hashed script/style files no longer exist. `/api/ui-config` now
   returns `tar1090_version`, and the map iframe loads `<tar1090_url>?v=<version>`, so

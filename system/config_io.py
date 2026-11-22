@@ -115,7 +115,7 @@ def read_flat_ini(path: str) -> dict[str, str]:
     return vals
 
 def write_flat_ini(path: str, data: dict[str, Any]) -> None:
-    app.HOST.write_text(path, ''.join(f'{k}={v}\n' for k, v in data.items()))
+    app.HOST.write_text(path, ''.join(f'{k}={v}\n' for k, v in data.items()), backup=True)
 
 def read_shell_vars(path: str) -> dict[str, str]:
     vals = {}
@@ -144,7 +144,7 @@ def write_shell_vars(path: str, data: dict[str, Any]) -> None:
     for k, v in data.items():
         if k not in updated:
             out.append(f'{k}="{v}"')
-    app.HOST.write_text(path, '\n'.join(out) + '\n')
+    app.HOST.write_text(path, '\n'.join(out) + '\n', backup=True)
 
 def read_piaware_config(fields: list[Any]) -> dict[str, str]:
     vals = {}
@@ -292,4 +292,4 @@ def save_feeders(feeders: list[dict[str, Any]]) -> None:
     buf.write('# ADS-B Stack Monitor - Feeder Configuration\n')
     buf.write('# Section types: [service:<unit>] or [docker:<container>]\n\n')
     cfg.write(buf)
-    app.HOST.write_text(app.CONFIG_FILE, buf.getvalue())
+    app.HOST.write_text(app.CONFIG_FILE, buf.getvalue(), backup=True)
