@@ -61,9 +61,11 @@ def _check_dataflow_step() -> None:
     """Advance each feeder's data-flow timer (system/dataflow.py); one feeder's
     failure doesn't stop the others."""
     any_failed = False
-    for f in load_config():
+    feeders = load_config()
+    configured = {f['key'] for f in feeders}
+    for f in feeders:
         try:
-            dataflow.update(f)
+            dataflow.update(f, configured=configured)
         except Exception:
             any_failed = True
     if any_failed:

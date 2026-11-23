@@ -330,3 +330,39 @@ def test_events_route_open_on_readonly_port(ledger_db):
     finally:
         appmod._request_port.port = appmod.ADMIN_PORT
     assert r.status_code == 200 and json.loads(r.data)['events'] == []
+
+
+# ── MLAT sync on feeders without their own MLAT card ─────────────────────────
+ADSBFI = {'key': 'adsbfi-feed', 'kind': 'service', 'label': 'adsb.fi'}
+ADSBFI_MLAT_CMD = ('journalctl', '-u', 'adsbfi-mlat', '-n', '200', '-o', 'short-unix', '--no-pager')
+
+
+def test_piaware_mlat_from_status_json(fake_host):
+    fake_host.files[dataflow.PIAWARE_STATUS] = {'mlat': {'status': 'green', 'message': 'Multilateration synchronized'}}
+    assert dataflow.observe_mlat(PIAWARE, set(), NOW) == {'ok': True, 'detail': 'Multilateration synchronized'}
+
+
+def test_piaware_mlat_amber(fake_host):
+    fake_host.files[dataflow.PIAWARE_STATUS] = {'mlat': {'status': 'amber', 'message': 'Multilateration not synchronized'}}
+    assert dataflow.observe_mlat(PIAWARE, set(), NOW)['ok'] is False
+
+
+def test_companion_mlat_client_shown_on_feed_card(fake_host):
+    fake_host.commands[ADSBFI_MLAT_CMD] = Result(0, f'{NOW - 60:.6f} host adsbfi-mlat[1]: Server:   ready   0.1 kB/s', '')
+    assert dataflow.observe_mlat(ADSBFI, {'adsbfi-feed'}, NOW) == {'ok': True, 'detail': 'MLAT server ready'}
+
+
+def test_companion_with_its_own_card_is_not_repeated(fake_host):
+    assert dataflow.observe_mlat(ADSBX, {'adsbexchange-feed', 'adsbexchange-mlat'}, NOW) is None
+    assert ('run', MLAT_CMD) not in fake_host.calls
+
+
+def test_no_mlat_source_is_none(fake_host):
+    assert dataflow.observe_mlat(FR24, set(), NOW) is None
+    assert dataflow.observe_mlat(ADSBFI, set(), NOW) is None      # no journal for adsbfi-mlat
+
+
+def test_update_carries_mlat(fake_host, ledger_db):
+    fake_host.files[dataflow.PIAWARE_STATUS] = {
+        'time': NOW * 1000, 'adept': {'status': 'green'}, 'mlat': {'status': 'green', 'message': 'synced'}}
+    assert dataflow.update(PIAWARE, NOW, configured={'piaware'})['mlat'] == {'ok': True, 'detail': 'synced'}

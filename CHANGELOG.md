@@ -8,6 +8,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.1.0] - 2026-11-22
 
 ### Added
+- Admin-port client allow-list: port 5000 answers only loopback, private LAN and
+  Tailscale clients (403 otherwise), set by `ADMIN_ALLOW_NETS` (`private` default,
+  extra CIDRs, or `any`). `ADMIN_BIND` / `READONLY_BIND` choose listen addresses.
+- Max range shows readsb's own 15-minute maximum next to the live value
+  (`max_range_15m_nm` in `/api/status`), as a cross-check on the live figure.
+- MLAT tag on the FlightAware and adsb.fi cards (piaware's built-in MLAT and
+  `adsbfi-mlat`, which have no card of their own); amber when not synchronized.
 - Feeder data-flow alerts: a feeder that is running but has sent no data for 5 minutes
   gets an amber "no data" badge and a "No data:" line in the alert banner. Sources: the
   upload connector of the ADSBExchange / adsb.fi feed clients (`stats.prom`), FR24's

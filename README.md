@@ -35,10 +35,19 @@ route-by-route: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 | Port | Purpose |
 |---|---|
-| `5000` (admin) | Full access — settings writes, service restarts, backup. Password login |
+| `5000` (admin) | Full access — settings writes, service restarts, backup. Password login, LAN and Tailscale clients only |
 | `5001` (read-only) | Status + stats only — safe to expose via reverse proxy. No login |
 
 Configurable via `ADMIN_PORT` / `READONLY_PORT` environment variables.
+
+The admin port refuses (403) any client outside loopback, the private LAN ranges
+and Tailscale (`100.64.0.0/10`, `fd7a:…`), whatever interface the request arrives
+on. Set `ADMIN_ALLOW_NETS` to change that: comma-separated CIDRs, `private` for
+the default set, or `any` to turn the check off (e.g.
+`ADMIN_ALLOW_NETS=private,203.0.113.0/24`). Both ports listen on every interface
+by default; `ADMIN_BIND` / `READONLY_BIND` take a comma-separated address list.
+The allow-list is the default rather than a fixed bind list because the LAN
+address comes from DHCP and Tailscale may come up after the monitor starts.
 
 ### Admin login
 
