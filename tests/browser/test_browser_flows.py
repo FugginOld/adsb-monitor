@@ -1,0 +1,196 @@
+"""Settings and status flows in a real browser (see conftest.py here).
+
+Each test also fails on any page error, console error or CSP violation, which
+is what catches a broken data-click wiring or an inline handler slipping back.
+"""
+import os
+import re
+import threading
+
+import pytest
+from playwright.sync_api import expect
+
+import app as appmod
+from system import apply_guard, dataflow
+from system.init_adapter import BACKUP_SUFFIX
+
+pytestmark = pytest.mark.timeout(90)
+
+
+def open_settings(page):
+    page.click('#btn-settings')
+    expect(page.locator('#view-settings')).to_be_visible()
+
+
+def finish_check_later(monkeypatch, state, message, after=1.0):
+    """Instead of a real verify thread, end each check with `state` after `after` s."""
+    def start(check):
+        threading.Timer(after, apply_guard._set, args=(check, state, message)).start()
+    monkeypatch.setattr(apply_guard, '_start', start)
+
+
+def test_dashboard_renders_cards_and_metrics(page, station):
+    expect(page.locator('#core-cards .card')).to_have_count(2)
+    expect(page.locator('#feeder-cards .card')).to_have_count(2)
+    expect(page.locator('#feeder-cards')).to_contain_text('FlightRadar24')
+    assert page.problems == []
+
+
+def test_view_switching_and_theme(page, station):
+    open_settings(page)
+    page.click('#btn-map')
+    expect(page.locator('#view-settings')).to_be_hidden()
+    before = page.evaluate('document.documentElement.dataset.theme || ""')
+    page.click('[data-click="toggleTheme"]')
+    assert page.evaluate('document.documentElement.dataset.theme || ""') != before
+    assert page.problems == []
+
+
+def test_airspy_save_follows_the_check_to_verified(page, station, monkeypatch):
+    finish_check_later(monkeypatch, 'verified', 'airspy_adsb restarted and is running with the new settings')
+    open_settings(page)
+    expect(page.locator('#airspy-gain')).to_have_value('13')
+    page.select_option('#airspy-gain', '15')
+    page.click('[data-click="saveAirspy"]')
+    toast = page.locator('#airspy-toast')
+    expect(toast).to_contain_text('checking that airspy_adsb comes back')
+    expect(toast).to_contain_text('restarted and is running with the new settings', timeout=15000)
+    assert 'GAIN=15' in station['host'].files[appmod.AIRSPY_DEFAULT]
+    assert page.problems == []
+
+
+def test_rolled_back_save_shows_why(page, station, monkeypatch):
+    finish_check_later(monkeypatch, 'rolled_back',
+                       'readsb is failed 60 s after the save; restored the previous settings and restarted readsb')
+    open_settings(page)
+    page.fill('#recv-range', '250')
+    page.click('[data-click="saveReceiver"]')
+    toast = page.locator('#recv-toast')
+    expect(toast).to_contain_text('restored the previous settings', timeout=15000)
+    expect(toast).to_have_class(re.compile(r'\berr\b'))
+    assert page.problems == []
+
+
+def test_revert_from_backup(page, station, monkeypatch):
+    host = station['host']
+    host.files[appmod.READSB_DEFAULT] = 'RECEIVER_OPTIONS="--net-only --bad"\n'
+    host.files[os.path.realpath(appmod.READSB_DEFAULT) + BACKUP_SUFFIX] = 'RECEIVER_OPTIONS="--net-only"\n'
+    finish_check_later(monkeypatch, 'verified', 'readsb restarted and is running with the new settings')
+    dialogs = []
+    page.on('dialog', lambda d: (dialogs.append(d.message), d.accept()))
+    open_settings(page)
+    row = page.locator('#config-backups .backup-row', has_text='readsb')
+    expect(row).to_have_count(1)
+    row.locator('[data-click="revertConfig"]').click()
+    expect(page.locator('#revert-toast')).to_contain_text('restarted and is running', timeout=15000)
+    assert dialogs and appmod.READSB_DEFAULT in dialogs[0]
+    assert host.files[appmod.READSB_DEFAULT] == 'RECEIVER_OPTIONS="--net-only"\n'
+    assert host.files[os.path.realpath(appmod.READSB_DEFAULT) + BACKUP_SUFFIX] == 'RECEIVER_OPTIONS="--net-only --bad"\n'
+    assert page.problems == []
+
+
+def test_feeder_list_edit_is_saved(page, station):
+    open_settings(page)
+    label = page.locator('#feeder-rows [data-change="feederField"][data-field="label"]').nth(2)
+    expect(label).to_have_value('FlightRadar24')
+    label.fill('FR24 (edited)')
+    label.dispatch_event('change')
+    page.click('[data-click="saveFeeders"]')
+    expect(page.locator('#feeders-toast')).to_contain_text('Saved')
+    # saved through the host seam, so the new feeders.ini lands in the FakeHost
+    assert 'label = FR24 (edited)' in station['host'].files[str(station['ini'])]
+    assert page.problems == []
+
+
+def test_running_feeder_without_data_shows_badge_and_banner(page, station, monkeypatch):
+    real = dataflow.current
+    def fake_current(feeder):
+        if feeder['key'] == 'fr24feed':
+            return {'state': 'stale', 'detail': 'FR24 link disconnected (no data for 6m)',
+                    'age_s': None, 'since': 1.0, 'mlat': None}
+        return real(feeder)
+    monkeypatch.setattr(dataflow, 'current', fake_current)
+    page.reload()
+    card = page.locator('#feeder-cards .card', has_text='FlightRadar24')
+    expect(card.locator('.badge')).to_have_text('no data', timeout=15000)
+    expect(page.locator('#alert-items')).to_contain_text('No data: FlightRadar24 (FR24 link disconnected', timeout=40000)
+    assert page.problems == []
+
+
+def test_labels_from_feeders_ini_are_escaped(page, station):
+    station['ini'].write_text(station['ini'].read_text().replace(
+        'label = adsb.fi', 'label = <img src=x onerror="window.__pwned=1">adsb.fi'))
+    page.reload()
+    expect(page.locator('#feeder-cards')).to_contain_text('<img src=x')
+    assert page.evaluate('window.__pwned === undefined')
+    assert page.problems == []
+
+
+def seed_timeline(hours=24):
+    """24 h of plausible samples with two gain steps and a few other changes."""
+    import math
+    import time as _t
+    from system import db
+    now = _t.time()
+    real_time = db.time.time
+    try:
+        for i in range(int(hours * 3600 / 300)):
+            ts = now - hours * 3600 + i * 300
+            day = 0.5 + 0.5 * math.sin((ts % 86400) / 86400 * 2 * math.pi - 1.8)
+            gain = 15.0 if i < 120 else 13.0 if i < 230 else 14.0
+            sig = {'strong_pct': max(0.2, 6.5 - (15 - gain) * 2.2 + day), 'gain': gain,
+                   'snr': 12.0, 'noise': 37.0}
+            db.time.time = lambda ts=ts: ts
+            db.record_metrics(int(40 + 80 * day), int(300 + 1500 * day), int(140 + 50 * day), sig)
+            if i == 120:
+                db.record_gain_change('15', '13', 'auto-tune: 6.5% strong signals > 5% — lowering gain 15 → 13')
+            if i == 230:
+                db.record_gain_change('13', '14', 'auto-tune: 0.3% strong signals < 0.5% — raising gain 13 → 14')
+                db.record_change('restart', 'airspy_adsb', 'airspy_adsb restarted')
+            if i == 250:
+                db.record_change('config', 'readsb', 'settings save: readsb restarted and is running with the new settings', 'ok')
+            if i == 260:
+                db.record_dataflow_event('fr24feed', 'stale', 'FR24 link disconnected')
+    finally:
+        db.time.time = real_time
+
+
+def test_timeline_view(page, station):
+    seed_timeline()
+    page.click('#btn-timeline')
+    expect(page.locator('#view-timeline')).to_be_visible()
+    expect(page.locator('#tl-chart svg .tl-line')).to_have_count(4)
+    expect(page.locator('#tl-chart .tl-marker')).to_have_count(2)
+    assert sorted(page.locator('#tl-chart .tl-marker-label').all_text_contents()) == ['13→14', '15→13']
+    expect(page.locator('#tl-changes .tl-change')).to_have_count(5)
+    expect(page.locator('#tl-changes')).to_contain_text('gain 13 → 14')
+    expect(page.locator('#tl-links')).to_contain_text('All tracks, last 24 h')
+    box = page.locator('#tl-chart .tl-hit').bounding_box()
+    page.mouse.move(box['x'] + box['width'] * 0.6, box['y'] + 60)
+    expect(page.locator('#tl-tip')).to_be_visible()
+    expect(page.locator('#tl-tip')).to_contain_text('Airspy gain')
+    page.click('[data-click="setTimelineHours"][data-hours="6"]')
+    expect(page.locator('#tl-links')).to_contain_text('last 6 h')
+    page.click('[data-click="toggleTimelineTable"]')
+    expect(page.locator('#tl-chart table tbody tr').first).to_be_visible()
+    shots = os.environ.get('TIMELINE_SHOTS')
+    if shots:
+        page.click('[data-click="toggleTimelineTable"]')
+        page.click('[data-click="setTimelineHours"][data-hours="24"]')
+        expect(page.locator('#tl-chart .tl-marker')).to_have_count(2)
+        page.mouse.move(box['x'] + box['width'] * 0.6, box['y'] + 60)
+        page.screenshot(path=f'{shots}/timeline-light.png', full_page=True)
+        page.click('[data-click="toggleTheme"]')
+        page.screenshot(path=f'{shots}/timeline-dark.png', full_page=True)
+        page.set_viewport_size({'width': 390, 'height': 900})
+        page.wait_for_timeout(400)
+        page.screenshot(path=f'{shots}/timeline-phone.png', full_page=True)
+    assert page.problems == []
+
+
+def test_strong_signal_sparkline(page, station):
+    seed_timeline(hours=1)
+    page.reload()
+    expect(page.locator('#sig-strong')).to_have_text(re.compile(r'^\d+\.\d%$'), timeout=15000)
+    expect(page.locator('#spark-strong polyline')).to_have_count(1)
+    assert page.problems == []

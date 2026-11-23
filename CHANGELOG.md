@@ -8,6 +8,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.1.0] - 2026-11-22
 
 ### Added
+- Admin-port client allow-list: port 5000 answers only loopback, private LAN and
+  Tailscale clients (403 otherwise), set by `ADMIN_ALLOW_NETS` (`private` default,
+  extra CIDRs, or `any`). `ADMIN_BIND` / `READONLY_BIND` choose listen addresses.
+- Max range shows readsb's own 15-minute maximum next to the live value
+  (`max_range_15m_nm` in `/api/status`), as a cross-check on the live figure.
+- MLAT tag on the FlightAware and adsb.fi cards (piaware's built-in MLAT and
+  `adsbfi-mlat`, which have no card of their own); amber when not synchronized.
+- Verify-or-rollback for manual saves (Airspy, receiver, 1090/978 SDR): after the
+  restart the monitor checks in the background that the unit stays active and, for
+  airspy_adsb and readsb, writes fresh stats (limits 240 s / 60 s / 30 s). If not, it
+  restores every file the save changed (removing one it created), reloads systemd for
+  drop-ins, and restarts again; `.adsb-monitor.bak` stays the last good copy. The save
+  toast follows the check (`GET /api/settings/check/<id>`).
+- Timeline view (toolbar → Timeline; `GET /api/timeline?hours=6|12|24`, both ports):
+  - **Chart:** messages/s, max range, Airspy gain and strong-signal % on one shared
+    time axis, one panel each. Each gain step is marked through every panel, and
+    auto-tune's thresholds are drawn on the strong % panel.
+  - **Reading it:** a crosshair and tooltip read all four panels at once, a table
+    view holds the same numbers, and restarts and other changes sit in an events
+    lane.
+  - **What changed:** a feed merging gain steps, restarts, config saves and reverts,
+    finished stack updates, service up/down and data-flow changes.
+  - **tar1090 links:** all tracks for the window (`?pTracks=N`), the range outline,
+    and the heatmap when readsb runs with `--heatmap`.
+- Metrics also record the Airspy's strong-signal %, median SNR and noise, and gain
+  every 30 s (new columns, added to existing databases on start). The Airspy panel
+  shows a 60-minute strong-signal % sparkline.
+- `change_events` table (`system/changes.py`):
+  - **Restarts:** caught for any cause, from systemd's
+    `ActiveEnterTimestampMonotonic` or docker's `StartedAt`.
+  - **Config saves and reverts:** recorded when their verify-or-rollback check ends.
+  - **Stack updates:** recorded once when they finish.
+- Run as a dedicated user (`sudo installer/service-user.sh enable|disable|status`):
+  - **The switch:** the monitor runs as `adsb-monitor`, with its data in
+    `/var/lib/adsb-monitor`. The script rolls back to root if the monitor doesn't
+    come up.
+  - **Root actions:** everything that needs root goes through
+    `system/privileged.py` (`helper.py` via one sudoers line). That gateway checks
+    paths, file contents, unit names, the container and the component, and it
+    applies in root mode too. The helper logs each change to the auth log.
+- Browser tests (`tests/browser/`, Playwright + headless Chromium, a CI job on PRs to
+  `main`): login, view switching, Airspy and receiver saves through verified and
+  rolled-back checks, config revert, feeder-list edits, the no-data badge and banner,
+  and escaping of `feeders.ini` labels. Every test also fails on any page error,
+  console error or CSP violation.
+- One-click config revert (Settings → Service control → Config backups): lists managed
+  files whose backup differs (`GET /api/config/backups`, paths and times only) and
+  restores one (`POST /api/config/revert`) with the same check; the replaced version
+  becomes the backup.
 - Feeder data-flow alerts: a feeder that is running but has sent no data for 5 minutes
   gets an amber "no data" badge and a "No data:" line in the alert banner. Sources: the
   upload connector of the ADSBExchange / adsb.fi feed clients (`stats.prom`), FR24's
@@ -42,6 +91,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   auto-tune off (so it doesn't walk the gain back) and is recorded in the gain history.
 
 ### Security
+- The bias-tee drop-in can now only be one of the two the dashboard generates. Before
+  this, a `--device` serial in `/etc/default/readsb` was copied into a root
+  `ExecStartPre` shell command unchecked.
+- A config import no longer restores `adsb-monitor.service` (the unit names the
+  user and command the monitor runs as); the file stays in the download.
+- Saving piaware settings reports a failed `piaware-config` call instead of "Saved".
 - Content-Security-Policy on HTML pages (`script-src 'self'`, `object-src 'none'`,
   `frame-src` limited to http/https for the map and graphs) plus
   `X-Content-Type-Options: nosniff`. Inline scripts and `on*=` handlers were removed

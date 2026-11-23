@@ -44,6 +44,9 @@ function makeCard(f) {
     const cls = live?' live':f.last_seen==='no data'?' nodata':'';
     lastSeen = `<span class="last-seen${cls}" title="${esc(flowTip)}">${live?'<i class="ti ti-point-filled" aria-hidden="true"></i> live':esc(f.last_seen)}</span>`;
   }
+  // MLAT sync for a feeder whose MLAT client has no card of its own (dataflow.observe_mlat)
+  const m = f.data && f.data.mlat;
+  if (m) lastSeen += `<span class="mlat-tag${m.ok?' ok':' bad'}" title="${esc(m.detail)}">MLAT${m.ok?'':' !'}</span>`;
   // Compact uptime bars (7 days)
   let uptimeBars = '';
   if (f.uptime_bars && f.uptime_bars.length) {
@@ -92,6 +95,8 @@ async function load() {
     document.getElementById('m-ac').textContent  = d.metrics.aircraft;
     document.getElementById('m-msg').textContent = d.metrics.msg_rate;
     document.getElementById('m-rng').textContent = d.metrics.max_range_nm||'—';
+    document.getElementById('m-rng-sub').textContent =
+      d.metrics.max_range_15m_nm ? `nm · 15-min max ${d.metrics.max_range_15m_nm}` : 'nautical miles';
     const core = d.feeders.filter(f=> CORE_KEYS.includes(f.key));
     const feed = d.feeders.filter(f=>!CORE_KEYS.includes(f.key));
     document.getElementById('core-cards').innerHTML   = core.map(makeCard).join('');
@@ -133,6 +138,10 @@ async function loadSparklines() {
     sparkMsgData = hist.map(h=>h.msg_rate);
     drawSparkline('spark-ac',  sparkAcData,  '#4ade80');
     drawSparkline('spark-msg', sparkMsgData, '#60a5fa');
+    const strong = hist.map(h=>h.strong_pct).filter(v=>v!=null);
+    drawSparkline('spark-strong', strong, '#a78bfa');
+    const sv = document.getElementById('sig-strong');
+    if (sv) sv.textContent = strong.length ? strong[strong.length-1].toFixed(1)+'%' : '—';
   } catch {}
 }
 
@@ -274,9 +283,10 @@ async function applyRecommendedGain() {
     const payload = { ...cur.settings, gain: String(_gainRecommendedValue) };
     const r = await postAirspySettings(payload);
     if (r.ok) {
-      document.getElementById('gain-rec').textContent = 'Gain updated — restarting airspy_adsb...';
+      document.getElementById('gain-rec').textContent = 'Gain updated — restarting airspy_adsb and checking it comes back…';
       setTimeout(loadSignalStats, 5000);
     }
+    if (!r.cancelled) followCheck('airspy-toast', r);   // reports a rollback if airspy_adsb doesn't come back
   } catch {}
   btn.disabled = false;
 }
@@ -287,10 +297,11 @@ async function applyRecommendedGain() {
 // opens/closes the system-log stream as you enter/leave Settings.
 // ───────────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['map','graphs','settings'];
+const VIEWS = ['map','graphs','timeline','settings'];
 const TLABELS = {
   map:      '<i class="ti ti-map-pin" aria-hidden="true"></i> <span>tar1090 live map</span>',
   graphs:   '<i class="ti ti-chart-line" aria-hidden="true"></i> <span>Performance graphs</span>',
+  timeline: '<i class="ti ti-timeline" aria-hidden="true"></i> <span>Reception timeline</span>',
   settings: '<i class="ti ti-settings" aria-hidden="true"></i> <span>Settings</span>',
 };
 function showView(v) {
@@ -301,4 +312,5 @@ function showView(v) {
   document.getElementById('toolbar-label').innerHTML=TLABELS[v]||'';
   if (v==='settings') { loadSettings(); openSysLog(); }
   else closeSysLog();
+  if (v==='timeline') openTimeline(); else closeTimeline();
 }

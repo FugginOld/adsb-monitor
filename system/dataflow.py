@@ -17,6 +17,9 @@ source whether data is moving:
   readsb                          `stats.json`: messages decoded in the last minute
   docker feeders                  the container's own health check
 
+`observe_mlat()` adds MLAT sync to the cards of feeders whose MLAT client has no
+card of its own (piaware's built-in MLAT, adsbfi-mlat). Display only.
+
 `observe()` is one read of those sources. `update()` (run by the poller every
 30 s) keeps, per feeder, when data last stopped flowing: a feeder is `stale`
 only after STALE_AFTER_S without data, so a short reconnect never raises an
@@ -161,14 +164,43 @@ def _readsb(now: float) -> Observation:
 
 
 def _docker(name: str) -> Observation:
-    r = app.HOST.run(['docker', 'inspect', '--format',
-                      '{{if .State.Health}}{{.State.Health.Status}}{{end}}', name], timeout=5)
+    r = app.HOST.elevated('docker-inspect', name,
+                          '{{if .State.Health}}{{.State.Health.Status}}{{end}}', timeout=10)
     health = r.out.strip() if r.ok else ''
     if health == 'healthy':
         return Observation(True, 'container health check passing')
     if health == 'unhealthy':
         return Observation(False, 'container health check failing')
     return UNKNOWN
+
+
+# ── MLAT sync for feeders whose MLAT client has no card of its own ───────────
+# A feed client's companion mlat-client unit; skipped when that unit is a card
+# in feeders.ini (it then shows its own data flow). piaware runs MLAT itself.
+MLAT_COMPANIONS = {'adsbfi-feed': 'adsbfi-mlat', 'adsbexchange-feed': 'adsbexchange-mlat'}
+
+
+def observe_mlat(feeder: dict[str, Any], configured: set[str], now: float | None = None) -> dict[str, Any] | None:
+    """{'ok': bool|None, 'detail': str} for this feeder's MLAT, or None if it has none
+    to show. Display only: MLAT trouble is not lost feed data, so it never alerts."""
+    now = time.time() if now is None else now
+    key = feeder['key']
+    try:
+        if key == 'piaware':
+            d = app.HOST.read_json(PIAWARE_STATUS)
+            m = d.get('mlat') if isinstance(d, dict) else None
+            if not isinstance(m, dict) or 'status' not in m:
+                return None
+            return {'ok': m['status'] == 'green', 'detail': str(m.get('message') or m['status'])}
+        companion = MLAT_COMPANIONS.get(key)
+        if companion and companion not in configured:
+            o = _mlat_client(companion, now)
+            if o.ok is None:
+                return None
+            return {'ok': o.ok, 'detail': o.detail}
+    except Exception:
+        return None
+    return None
 
 
 def observe(feeder: dict[str, Any], now: float | None = None) -> Observation:
@@ -207,11 +239,19 @@ def _ago(s: float) -> str:
     return f'{s // 3600}h'
 
 
-def update(feeder: dict[str, Any], now: float | None = None) -> dict[str, Any]:
-    """Observe, advance this feeder's no-data timer, record ok<->stale changes."""
+def update(feeder: dict[str, Any], now: float | None = None,
+           configured: set[str] | None = None) -> dict[str, Any]:
+    """Observe, advance this feeder's no-data timer, record ok<->stale changes.
+
+    `configured`: keys in feeders.ini (read when not given), so an MLAT client
+    with its own card isn't shown again on its feed client's card."""
     now = time.time() if now is None else now
     key = feeder['key']
     obs = observe(feeder, now)
+    if configured is None:
+        from system.config_io import load_config
+        configured = {f['key'] for f in load_config()}
+    mlat = observe_mlat(feeder, configured, now)
     with _lock:
         st = _state.setdefault(key, {'bad_since': None, 'recorded': None})
         if obs.ok is False:
@@ -229,7 +269,8 @@ def update(feeder: dict[str, Any], now: float | None = None) -> dict[str, Any]:
         if state in ('pending', 'stale') and bad_for >= 60:
             detail = f'{detail} (no data for {_ago(bad_for)})'
         flow = {'state': state, 'detail': detail, 'age_s': obs.age_s,
-                'since': st['bad_since'] if state in ('pending', 'stale') else None}
+                'since': st['bad_since'] if state in ('pending', 'stale') else None,
+                'mlat': mlat}
         st.update(flow=flow, checked=now)
         to_record = None
         if state in ('ok', 'stale') and st['recorded'] != state:

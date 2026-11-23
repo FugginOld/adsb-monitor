@@ -29,18 +29,25 @@ app = Flask(__name__, static_folder='static')
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 
 # ── Paths & runtime config ───────────────────────────────────────────────────
-# Where things live on the host. feeders.ini and history.db sit next to this
-# file in /opt/adsb-monitor; the /run and /etc paths are written by the SDR stack.
+# Where things live on the host. The monitor's own data (feeders.ini,
+# history.db, autotune*.json, admin_auth.json) lives in DATA_DIR: the
+# ADSB_MONITOR_DATA environment variable, else /var/lib/adsb-monitor once
+# installer/service-user.sh has created it (the code in /opt stays root-only),
+# else next to this file as on older installs. The /run and /etc paths are
+# written by the SDR stack.
 # The URL/port values come from the systemd unit's Environment= lines (generated
 # at install time) and fall back to sane defaults when unset.
 # ─────────────────────────────────────────────────────────────────────────────
 
 APP_VERSION    = '1.1.0'  # bump alongside CHANGELOG.md
-CONFIG_FILE: str = os.path.join(os.path.dirname(__file__), 'feeders.ini')
-DB_FILE        = os.path.join(os.path.dirname(__file__), 'history.db')
-AUTOTUNE_FILE  = os.path.join(os.path.dirname(__file__), 'autotune.json')
-AUTOTUNE_STATE_FILE = os.path.join(os.path.dirname(__file__), 'autotune_state.json')
-ADMIN_AUTH_FILE = os.path.join(os.path.dirname(__file__), 'admin_auth.json')  # run.py set-password
+SERVICE_DATA_DIR = '/var/lib/adsb-monitor'
+DATA_DIR: str = (os.environ.get('ADSB_MONITOR_DATA')
+                 or (SERVICE_DATA_DIR if os.path.isdir(SERVICE_DATA_DIR) else os.path.dirname(os.path.abspath(__file__))))
+CONFIG_FILE: str = os.path.join(DATA_DIR, 'feeders.ini')
+DB_FILE        = os.path.join(DATA_DIR, 'history.db')
+AUTOTUNE_FILE  = os.path.join(DATA_DIR, 'autotune.json')
+AUTOTUNE_STATE_FILE = os.path.join(DATA_DIR, 'autotune_state.json')
+ADMIN_AUTH_FILE = os.path.join(DATA_DIR, 'admin_auth.json')  # run.py set-password
 READSB_JSON    = '/run/readsb'
 AIRSPY_STATS   = '/run/airspy_adsb/stats.json'
 AIRSPY_DEFAULT = '/etc/default/airspy_adsb'
@@ -55,6 +62,13 @@ TAR1090_URL_REMOTE    = os.environ.get('TAR1090_URL_REMOTE',    TAR1090_URL_LOCA
 GRAPHS1090_URL_REMOTE = os.environ.get('GRAPHS1090_URL_REMOTE', GRAPHS1090_URL_LOCAL)
 ADMIN_PORT    = int(os.environ.get('ADMIN_PORT',    '5000'))
 READONLY_PORT = int(os.environ.get('READONLY_PORT', '5001'))
+# Admin-port exposure (system/netguard.py). ADMIN_ALLOW_NETS: client networks
+# allowed on the admin port, comma-separated CIDRs or 'any'; the default is
+# loopback, private LAN ranges and Tailscale. ADMIN_BIND / READONLY_BIND:
+# addresses to listen on, comma-separated (default: all interfaces).
+ADMIN_ALLOW_NETS = os.environ.get('ADMIN_ALLOW_NETS', 'private')
+ADMIN_BIND       = os.environ.get('ADMIN_BIND', '0.0.0.0')
+READONLY_BIND    = os.environ.get('READONLY_BIND', '0.0.0.0')
 
 # ── Host + init adapters ───────────────────────────────────────────────────
 # Moved to system/init_adapter.py (Result, LinuxHost, InitAdapter family,
@@ -169,15 +183,26 @@ def index() -> Any:
 # ───────────────────────────────────────────────────────────────────────────
 
 def make_tagged_app(port: int) -> Callable[[dict[str, Any], Any], Any]:
+    from system.netguard import client_allowed, parse_allow_nets
+    allow = parse_allow_nets(ADMIN_ALLOW_NETS) if port == ADMIN_PORT else None
     def tagged_app(environ: dict[str, Any], start_response: Any) -> Any:
         _request_port.port = port
+        if allow is not None and not client_allowed(environ.get('REMOTE_ADDR', ''), allow):
+            body = b'The admin port only accepts clients on the local network or Tailscale.\n'
+            start_response('403 Forbidden', [('Content-Type', 'text/plain; charset=utf-8'),
+                                             ('Content-Length', str(len(body)))])
+            return [body]
         return app(environ, start_response)
     return tagged_app
 
 def run_server(port: int) -> None:
+    """Serve one port on every address in ADMIN_BIND / READONLY_BIND (blocks)."""
     from werkzeug.serving import ThreadedWSGIServer
-    server = ThreadedWSGIServer('0.0.0.0', port, make_tagged_app(port))
-    server.serve_forever()
+    binds = [a.strip() for a in (ADMIN_BIND if port == ADMIN_PORT else READONLY_BIND).split(',') if a.strip()]
+    servers = [ThreadedWSGIServer(addr, port, make_tagged_app(port)) for addr in binds or ['0.0.0.0']]
+    for extra in servers[1:]:
+        threading.Thread(target=extra.serve_forever, daemon=True).start()
+    servers[0].serve_forever()
 
 # No `if __name__ == '__main__':` here on purpose: system/*.py modules do
 # `import app` to reach HOST/INIT/DB_FILE (see docs/route-module-split.md §7/§9).

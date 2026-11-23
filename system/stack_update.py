@@ -29,7 +29,7 @@ import threading
 from typing import Any
 
 import app
-from system.init_adapter import SystemdAdapter
+from system.init_adapter import Result, SystemdAdapter
 
 UNIT_PREFIX = 'adsb-update-'
 
@@ -132,22 +132,30 @@ def start_update(component: str) -> tuple[bool, str]:
         busy = running_component()
         if busy:
             return False, f'an update of {COMPONENTS[busy]["label"]} is already running'
-        unit = unit_name(component)
-        # Clear the previous run's leftover unit (RemainAfterExit / failed) so the name is free.
-        app.HOST.run(['systemctl', 'stop', unit], timeout=10)
-        app.HOST.run(['systemctl', 'reset-failed', unit], timeout=10)
         c = COMPONENTS[component]
-        cmd = ['systemd-run', f'--unit={unit}', '--no-block',
-               f'--description=adsb-monitor: update {c["label"]}',
-               '--property=Type=oneshot', '--property=RemainAfterExit=yes',
-               '--property=TimeoutStartSec=45min', '--setenv=HOME=/root',
-               '--working-directory=/tmp',
-               '/bin/bash', '-c', RUNNER, 'adsb-update', c['url'], *c['args']]
-        r = app.HOST.run(cmd, timeout=15)
+        r = app.HOST.elevated('stack-update', component, timeout=60)
         if not r.ok:
             return False, (r.err or r.out or 'systemd-run failed').strip()[:300]
         _refreshed.pop(component, None)
         return True, f'update of {c["label"]} started'
+
+
+def launch(host: Any, component: str) -> Result:
+    """Start `component`'s update as a transient root unit. Runs as root
+    (system/privileged.py); the URL and arguments come only from COMPONENTS."""
+    unit = unit_name(component)
+    # Clear the previous run's leftover unit (RemainAfterExit / failed) so the name is free.
+    host.run(['systemctl', 'stop', unit], timeout=10)
+    host.run(['systemctl', 'reset-failed', unit], timeout=10)
+    c = COMPONENTS[component]
+    cmd = ['systemd-run', f'--unit={unit}', '--no-block',
+           f'--description=adsb-monitor: update {c["label"]}',
+           '--property=Type=oneshot', '--property=RemainAfterExit=yes',
+           '--property=TimeoutStartSec=45min', '--setenv=HOME=/root',
+           '--working-directory=/tmp',
+           '/bin/bash', '-c', RUNNER, 'adsb-update', c['url'], *c['args']]
+    r: Result = host.run(cmd, timeout=15)
+    return r
 
 def status() -> dict[str, Any]:
     """Every component's last/ current run. Kicks off a version re-check once

@@ -50,6 +50,32 @@ def admin_auth(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def change_records(monkeypatch, request):
+    """The "what changed" feed (system/changes.py) writes to history.db. Capture
+    its rows here instead, unless the test uses ledger_db (a real temp DB)."""
+    from system import changes
+    changes.reset()
+    rows = []
+    if 'ledger_db' not in request.fixturenames:
+        monkeypatch.setattr(changes, 'record_change', lambda *a, **k: rows.append(a) or True)
+    yield rows
+    changes.reset()
+
+
+@pytest.fixture(autouse=True)
+def no_background_checks(monkeypatch):
+    """Settings saves start a verify thread (system/apply_guard.py) that would
+    sleep and then poll a later test's FakeHost. Record checks instead; tests of
+    the check itself call apply_guard.run_check() with a fake clock."""
+    from system import apply_guard
+    started = []
+    monkeypatch.setattr(apply_guard, '_start', started.append)
+    with apply_guard._lock:
+        apply_guard._checks.clear()
+    return started
+
+
+@pytest.fixture(autouse=True)
 def fresh_dataflow_state():
     """Each test starts with no data-flow timers (system/dataflow.py keeps them in memory)."""
     from system import dataflow

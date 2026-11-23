@@ -49,12 +49,16 @@ systemd  →  run.py  →  app.py (Flask instance)  →  routes/*.py (Blueprint)
 |---|---|---|
 | `init_adapter.py` | Host + init-system adapters — the seam to the OS | `Result`, `LinuxHost`, `InitAdapter`, `SystemdAdapter`, `OpenRCAdapter`, `NullAdapter`, `detect_init` |
 | `auth.py` | Read-only vs admin port enforcement, cross-site write guard, admin login guard + session signing | `is_readonly`, `admin_required`, `csrf_guard`, `login_guard`, `AdminSessionInterface` |
+| `netguard.py` | Admin-port client allow-list (checked in `app.make_tagged_app` before Flask) | `parse_allow_nets`, `client_allowed`, `PRIVATE_NETS` |
 | `admin_login.py` | Admin password hash + session key in `admin_auth.json`, failed-login throttle | `set_password`, `verify`, `secret_key`, `too_many_failures` |
 | `db.py` | Uptime ledger + SQLite history (service_events, metrics, gain_changes, dataflow_events) | `record_gain_change`, `get_gain_changes`, `fold_uptime`, `_query_events`, `init_db`, `record_service_event`, `record_metrics`, `get_uptime_bars`, `get_service_uptime_pct`, `get_metrics_history`, `get_service_uptime_str`, `get_docker_uptime_str` |
 | `config_io.py` | Feeder config table + per-format read/write adapters | `FEEDER_CONFIGS`, `read_flat_ini`/`write_flat_ini`, `read_shell_vars`/`write_shell_vars`, `read_piaware_config`, `read_docker_env`, `CONFIG_ADAPTERS`, `get_feeder_settings`, `set_feeder_settings`, `load_config`, `get_config_map`, `save_feeders` |
 | `services.py` | Thin status/action wrappers over `INIT`/docker | `systemd_status`, `docker_status`, `service_action` |
 | `feeders.py` | Feeder health composition | `FeederHealth`, `feeder_status`, `probe`, `readsb_metrics`, `_dispatch_by_kind` |
 | `dataflow.py` | Is each feeder actually sending data? Per-feeder status sources, the 5-min no-data timer, `dataflow_events` | `observe`, `update` (poller), `current` (routes), `last_seen`, `STALE_AFTER_S` |
+| `apply_guard.py` | Verify-or-rollback for manual config saves; one-click revert from `.adsb-monitor.bak` | `snapshot`, `restart_and_verify`, `run_check`, `managed_configs`, `list_backups`, `revert` |
+| `changes.py` | The "what changed" feed's own events: restarts (start marker moved), config check outcomes, finished stack updates | `detect_restarts`, `record_stack_updates`, `record` |
+| `privileged.py` | The one gateway for root actions: validated verbs (systemctl, write, rm, mkdir, piaware-config, docker-inspect/recreate/logs, stack-update, restore-graphs); in-process as root, via `sudo helper.py` as the service user | `dispatch`, `validate_content`, `writable_paths`, `main` |
 | `sdr_detect.py` | Airspy model detection — no dependency on settings or the presence guard | `MINI_IDS`, `R2_IDS`, `detect_airspy_model` |
 | `sdr_settings.py` | Airspy/receiver/per-band SDR settings parse+write, live hint | `parse_airspy_options` (effective values: G/M flags honoured)/`write_airspy_options` (validates; `-m` R2-only), `set_airspy_gain`, `airspy_live_stats`, `parse_receiver_options`/`write_receiver_options`, `parse_sdr1090`/`write_sdr1090`, `parse_sdr978`/`write_sdr978`, `airspy_live_hint` (imports `sdr_detect`) |
 | `sdr_presence.py` | SDR presence guard — stop/resume decoders on stick un/replug | `enforce_sdr_presence`, `_enforce_sdr`, `_rtl_present`, `_airspy_present` (imports `sdr_settings` for `_opt_in_receiver`, `sdr_detect` for `detect_airspy_model`) |
@@ -74,9 +78,9 @@ calls it once at import time. `GET /` (serves `static/index.html`) stays in
 | Blueprint | Routes |
 |---|---|
 | `dashboard.py` | `GET /api/alerts` (service down + `data_alerts`), `/api/dataflow/events`, `/api/mode`, `/api/ui-config`, `/api/status` |
-| `stats.py` | `GET /api/stats/airspy`, `/readsb`, `/bands`, `/aircraft_types`, `/system`, `/history`, `/uptime/history`, `/uptime/<service>` |
+| `stats.py` | `GET /api/stats/airspy`, `/readsb`, `/bands`, `/aircraft_types`, `/system`, `/history`, `/uptime/history`, `/uptime/<service>`, `GET /api/timeline` (both ports) |
 | `versions.py` | `POST /api/versions/refresh` |
-| `settings.py` | `GET`+`POST /api/settings/airspy`, `/receiver`, `/sdr/<band>`, `/feeders`, `/feeder/<key>`; `GET`+`POST /api/autotune` (GET works on both ports) |
+| `settings.py` | `GET`+`POST /api/settings/airspy`, `/receiver`, `/sdr/<band>`, `/feeders`, `/feeder/<key>`; `GET`+`POST /api/autotune` (GET works on both ports), `GET /api/settings/check/<id>`, `GET /api/config/backups`, `POST /api/config/revert` |
 | `services.py` | `POST /api/service/<name>/restart` |
 | `stack.py` | `GET /api/stack/updates`; `POST /api/stack/update/<component>`; `GET /api/stack/update/<component>/logs` (all admin-only) |
 | `logs.py` | `GET /api/logs/<key>`, `/api/syslog` |
@@ -161,7 +165,9 @@ timer per feeder: `pending` while data has been missing for less than
 `data_alert` and the card shows as an amber "no data" badge. A reading that
 can't be taken (`unknown`) neither starts nor clears the timer. ok <-> stale
 changes are stored in `dataflow_events` (10-year retention). Routes read the
-poller's latest result through `current()`.
+poller's latest result through `current()`. `observe_mlat()` adds an MLAT tag
+(display only) to feeders whose MLAT client has no card: piaware's built-in
+MLAT, and `adsbfi-mlat` next to `adsbfi-feed`.
 
 ## Front end
 
@@ -169,7 +175,8 @@ poller's latest result through `current()`.
 classic (non-module) files in `static/js/`, loaded in order and sharing one
 global scope: `core.js` (fetch wrapper, `esc()`, theme, sidebar, sparklines),
 `status.js` (status cards and metrics), `settings.js` (settings view),
-`logs.js` (log modal), `init.js` (event wiring and startup).
+`logs.js` (log modal), `timeline.js` (Timeline view: small-multiple SVG chart,
+crosshair, table view, changes feed), `init.js` (event wiring and startup).
 
 There are no inline scripts or `on*=` handlers. An element names its action with
 `data-click="name"` / `data-change="name"` plus `data-*` arguments, and

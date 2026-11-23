@@ -88,6 +88,7 @@ def test_docker_recreate_rolls_back_on_run_failure(fake_host):
 
 # ── set_feeder_settings: piaware write-via-cmd path ──────────────────────────
 def test_piaware_write_via_cmd_issues_config_commands(fake_host):
+    fake_host.commands[('piaware-config', 'feeder-id', 'abc-123')] = Result(0, '', '')
     ok, msg = appmod.set_feeder_settings('piaware', {'feeder-id': 'abc-123', 'empty': ''})
     assert ok is True
     issued = [c[1] for c in fake_host.calls if c[0] == 'run']

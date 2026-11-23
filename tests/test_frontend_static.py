@@ -51,7 +51,7 @@ def test_every_action_used_has_a_handler(attr, kind):
 def test_scripts_listed_in_index_exist_in_order():
     s = read(HTML[0])
     srcs = re.findall(r'<script src="/static/js/([\w.]+)"></script>', s)
-    assert srcs == ['core.js', 'status.js', 'settings.js', 'logs.js', 'init.js']
+    assert srcs == ['core.js', 'status.js', 'settings.js', 'logs.js', 'timeline.js', 'init.js']
     for n in srcs:
         assert os.path.exists(os.path.join(ROOT, 'static', 'js', n))
 

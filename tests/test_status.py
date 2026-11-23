@@ -87,3 +87,13 @@ def test_run_keeps_exception_text_out_of_the_response(caplog):
     # py/stack-trace-exposure: Result.err is returned to the browser verbatim.
     r = appmod.LinuxHost().run(['definitely-not-a-real-binary-xyz'])
     assert not r.ok and r.err == 'command failed'
+
+
+def test_band_presence_comes_from_the_host_seam(fake_host):
+    """Not os.path: the Pi running the tests has these files; CI doesn't."""
+    from system.stats import get_band_stats
+    assert get_band_stats()['has_airspy'] is False and get_band_stats()['has_978'] is False
+    fake_host.files[appmod.AIRSPY_DEFAULT] = 'GAIN=13\n'
+    fake_host.files[appmod.DUMP978_DEFAULT] = 'RECEIVER_OPTIONS=""\n'
+    out = get_band_stats()
+    assert out['has_airspy'] is True and out['has_978'] is True

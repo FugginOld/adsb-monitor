@@ -14,9 +14,14 @@ Persistence layer (history.db). Two tables:
                    ledger. Kept ~10 years; `record_service_event` only
                    inserts when the status actually differs from the last
                    recorded one.
-  metrics        — rolling aircraft count / message rate / range, sampled
+  metrics        — rolling aircraft count / message rate / range, plus the
+                   Airspy's strong-signal %, SNR, noise and gain, sampled
                    every 30s by the background poller, pruned to ~25h
-                   (sparkline data).
+                   (sparkline and timeline data).
+  change_events  — restarts, config saves and reverts, and stack updates
+                   (system/changes.py), for the "what changed" feed. Gain
+                   changes, service state and data-flow changes have their
+                   own tables; get_changes() merges all of them.
 The get_* helpers here turn stored rows into the shapes the API/UI want:
 per-day bars, an aggregate %, a metrics time series, and human "running for"
 strings (the last two read live from the init system, not the DB).
@@ -71,6 +76,10 @@ def _query_events(service: str, start: float, end: float) -> list[tuple[float, s
     conn.close()
     return ([seed] + rows) if seed else rows
 
+METRIC_SIGNAL_COLS = ('strong_pct', 'snr', 'noise', 'gain')
+CHANGE_RETENTION_S = 365 * 86400
+
+
 def init_db() -> None:
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
@@ -108,6 +117,23 @@ def init_db() -> None:
         new_gain TEXT NOT NULL,
         reason   TEXT NOT NULL
     )''')
+    # Things nothing else records (system/changes.py). `ref` dedupes an event
+    # seen on several polls, e.g. a stack update's finish timestamp.
+    c.execute('''CREATE TABLE IF NOT EXISTS change_events (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts      REAL NOT NULL,
+        kind    TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        detail  TEXT NOT NULL,
+        level   TEXT NOT NULL DEFAULT 'info',
+        ref     TEXT
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_change_ts ON change_events(ts)')
+    # Columns added after the first release: older databases get them here.
+    have = {r[1] for r in c.execute('PRAGMA table_info(metrics)')}
+    for col in METRIC_SIGNAL_COLS:
+        if col not in have:
+            c.execute(f'ALTER TABLE metrics ADD COLUMN {col} REAL')
     conn.commit()
     conn.close()
 
@@ -161,11 +187,17 @@ def record_service_event(service: str, status: str) -> None:
         conn.commit()
     conn.close()
 
-def record_metrics(aircraft: int, msg_rate: int, max_range_nm: int) -> None:
+def record_metrics(aircraft: int, msg_rate: int, max_range_nm: int,
+                   signal: dict[str, float] | None = None) -> None:
+    """One 30 s sample. `signal`: the Airspy's strong_pct / snr / noise / gain
+    (system/autotune.signal_sample), None when there is no fresh airspy stats.json."""
+    sig = signal or {}
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
-    c.execute('INSERT INTO metrics (ts, aircraft, msg_rate, max_range_nm) VALUES (?,?,?,?)',
-              (time.time(), aircraft, msg_rate, max_range_nm))
+    c.execute('INSERT INTO metrics (ts, aircraft, msg_rate, max_range_nm, strong_pct, snr, noise, gain) '
+              'VALUES (?,?,?,?,?,?,?,?)',
+              (time.time(), aircraft, msg_rate, max_range_nm,
+               *(sig.get(k) for k in METRIC_SIGNAL_COLS)))
     # Prune metrics older than 25 hours (keep sparkline data)
     c.execute('DELETE FROM metrics WHERE ts < ?', (time.time() - 90000,))
     conn.commit()
@@ -199,10 +231,93 @@ def get_metrics_history(minutes: int = 60) -> list[dict[str, Any]]:
     conn = sqlite3.connect(app.DB_FILE)
     c = conn.cursor()
     since = time.time() - minutes * 60
-    c.execute('SELECT ts, aircraft, msg_rate FROM metrics WHERE ts>=? ORDER BY ts ASC', (since,))
+    c.execute('SELECT ts, aircraft, msg_rate, strong_pct FROM metrics WHERE ts>=? ORDER BY ts ASC', (since,))
     rows = c.fetchall()
     conn.close()
-    return [{'ts': r[0], 'aircraft': r[1], 'msg_rate': r[2]} for r in rows]
+    return [{'ts': r[0], 'aircraft': r[1], 'msg_rate': r[2], 'strong_pct': r[3]} for r in rows]
+
+
+def get_timeline(hours: float = 24, bucket_s: int = 300) -> list[dict[str, Any]]:
+    """Metrics averaged into `bucket_s` buckets (range: the bucket's max; gain: its
+    last value), oldest first. Buckets with no samples are left out."""
+    since = time.time() - hours * 3600
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    c.execute('''SELECT CAST(ts / ? AS INTEGER) * ? AS b,
+                        AVG(msg_rate), MAX(max_range_nm), AVG(aircraft), AVG(strong_pct),
+                        AVG(snr), AVG(noise), COUNT(*)
+                 FROM metrics WHERE ts >= ? GROUP BY b ORDER BY b''', (bucket_s, bucket_s, since))
+    rows = c.fetchall()
+    # last non-null gain per bucket (a step happens mid-bucket; the later value wins)
+    c.execute('''SELECT CAST(ts / ? AS INTEGER) * ?, gain FROM metrics
+                 WHERE ts >= ? AND gain IS NOT NULL ORDER BY ts''', (bucket_s, bucket_s, since))
+    gains: dict[int, float] = {}
+    for b, g in c.fetchall():
+        gains[int(b)] = g
+    conn.close()
+    def r1(v: Any) -> float | None:
+        return None if v is None else round(float(v), 1)
+    return [{'ts': int(b), 'msg_rate': r1(m), 'max_range_nm': r[2], 'aircraft': r1(a),
+             'strong_pct': None if s is None else round(float(s), 2), 'snr': r1(snr),
+             'noise': r1(noise), 'gain': gains.get(int(b))}
+            for r in rows for b, m, _rng, a, s, snr, noise, _n in [r]]
+
+
+def record_change(kind: str, subject: str, detail: str, level: str = 'info',
+                  ref: str | None = None) -> bool:
+    """Store one change (system/changes.py); with `ref`, only once. True if stored."""
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    try:
+        if ref is not None:
+            c.execute('SELECT 1 FROM change_events WHERE kind=? AND subject=? AND ref=? LIMIT 1',
+                      (kind, subject, ref))
+            if c.fetchone():
+                return False
+        c.execute('INSERT INTO change_events (ts, kind, subject, detail, level, ref) VALUES (?,?,?,?,?,?)',
+                  (time.time(), kind, subject, detail[:300], level, ref))
+        c.execute('DELETE FROM change_events WHERE ts < ?', (time.time() - CHANGE_RETENTION_S,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_changes(hours: float = 24, limit: int = 200) -> list[dict[str, Any]]:
+    """Everything that changed in the window, newest first: restarts, config saves,
+    stack updates (change_events), gain steps, service up/down, data flow."""
+    since = time.time() - hours * 3600
+    conn = sqlite3.connect(app.DB_FILE)
+    c = conn.cursor()
+    out: list[dict[str, Any]] = []
+    for ts, kind, subject, detail, level in c.execute(
+            'SELECT ts, kind, subject, detail, level FROM change_events WHERE ts>=?', (since,)):
+        out.append({'ts': ts, 'kind': kind, 'subject': subject, 'detail': detail, 'level': level})
+    for ts, old, new, reason in c.execute(
+            'SELECT ts, old_gain, new_gain, reason FROM gain_changes WHERE ts>=?', (since,)):
+        rollback = 'roll' in reason.lower()
+        out.append({'ts': ts, 'kind': 'gain', 'subject': 'airspy_adsb',
+                    'detail': f'gain {old} → {new}: {reason}', 'level': 'warn' if rollback else 'info',
+                    'old': old, 'new': new})
+    # service up/down: only flips, so skip each service's first row in the window
+    # when it is just the ledger's opening entry (no earlier row)
+    for ts, service, status in c.execute(
+            '''SELECT e.ts, e.service, e.status FROM service_events e
+               WHERE e.ts>=? AND EXISTS (SELECT 1 FROM service_events p
+                                        WHERE p.service=e.service AND p.ts<e.ts)''', (since,)):
+        up = status == 'ok'
+        out.append({'ts': ts, 'kind': 'state', 'subject': service,
+                    'detail': 'running again' if up else 'stopped or failed',
+                    'level': 'ok' if up else 'error'})
+    for ts, service, state, detail in c.execute(
+            'SELECT ts, service, state, detail FROM dataflow_events WHERE ts>=?', (since,)):
+        ok = state == 'ok'
+        out.append({'ts': ts, 'kind': 'data', 'subject': service,
+                    'detail': ('data flowing again' if ok else 'no data') + (f': {detail}' if detail else ''),
+                    'level': 'ok' if ok else 'warn'})
+    conn.close()
+    out.sort(key=lambda e: e['ts'], reverse=True)
+    return out[:limit]
 
 def get_service_uptime_str(service: str) -> str | None:
     """Get how long a service has been running (delegates to INIT)."""
@@ -213,7 +328,7 @@ def get_service_uptime_str(service: str) -> str | None:
 
 def get_docker_uptime_str(container: str) -> str | None:
     try:
-        r = app.HOST.run(['docker', 'inspect', '--format', '{{.State.StartedAt}}', container], timeout=5)
+        r = app.HOST.elevated('docker-inspect', container, '{{.State.StartedAt}}', timeout=10)
         ts_str = r.out.strip()
         if ts_str:
             dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))

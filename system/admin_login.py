@@ -83,6 +83,11 @@ def set_password(password: str) -> None:
         f.flush()
         os.fsync(f.fileno())
     os.chmod(tmp, 0o600)
+    # `sudo run.py set-password` runs as root; when the service runs as the
+    # dedicated user (data dir owned by it), hand the file to that user.
+    d = os.stat(os.path.dirname(os.path.abspath(path)))
+    if os.geteuid() == 0 and d.st_uid != 0:
+        os.chown(tmp, d.st_uid, d.st_gid)
     os.replace(tmp, path)
 
 

@@ -10,9 +10,10 @@ A self-hosted web dashboard for monitoring an ADS-B receiver station. Shows live
 |---|---|
 | **Live status** | Active / down badge for every feeder and service, with last-seen time |
 | **Data-flow alerts** | Flags a feeder that is running but has sent no data for 5 minutes (upload disconnected, lost input, stalled client): amber "no data" badge plus a banner line |
+| **Reception timeline** | Messages/s, max range, Airspy gain and strong-signal % over 6–24 h on one time axis, with each gain step marked, so you can see whether a step helped. A "what changed" feed below merges gain steps, restarts, config saves and reverts, stack updates, service up/down and data-flow changes. Links to tar1090's all-tracks coverage view, range outline and heatmap (when readsb writes one) |
 | **Uptime history** | 7-day daily bars + aggregate % per service, backed by SQLite |
 | **Dual-band** | 1090 MHz ADS-B + 978 MHz UAT on two RTL-SDRs, merged onto one map |
-| **Per-band signal** | 1090 block (RSSI / SNR / noise) and 978 block (RSSI), shown only for present bands; Airspy block hidden when absent |
+| **Per-band signal** | 1090 block (RSSI / SNR / noise) and 978 block (RSSI), shown only for present bands; Airspy block hidden when absent. The Airspy block adds a 60-minute strong-signal % sparkline, the number auto-tune acts on |
 | **readsb deep stats** | Aircraft count, message rate, range, signal metrics |
 | **Version checking** | Current vs latest for each stack component |
 | **Settings** | Per-SDR gain + bias-tee (1090 / 978), sharing keys, lat/lon/altitude, receiver options in-browser |
@@ -35,10 +36,19 @@ route-by-route: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 | Port | Purpose |
 |---|---|
-| `5000` (admin) | Full access — settings writes, service restarts, backup. Password login |
+| `5000` (admin) | Full access — settings writes, service restarts, backup. Password login, LAN and Tailscale clients only |
 | `5001` (read-only) | Status + stats only — safe to expose via reverse proxy. No login |
 
 Configurable via `ADMIN_PORT` / `READONLY_PORT` environment variables.
+
+The admin port refuses (403) any client outside loopback, the private LAN ranges
+and Tailscale (`100.64.0.0/10`, `fd7a:…`), whatever interface the request arrives
+on. Set `ADMIN_ALLOW_NETS` to change that: comma-separated CIDRs, `private` for
+the default set, or `any` to turn the check off (e.g.
+`ADMIN_ALLOW_NETS=private,203.0.113.0/24`). Both ports listen on every interface
+by default; `ADMIN_BIND` / `READONLY_BIND` take a comma-separated address list.
+The allow-list is the default rather than a fixed bind list because the LAN
+address comes from DHCP and Tailscale may come up after the monitor starts.
 
 ### Admin login
 
@@ -57,6 +67,35 @@ logins from it are refused for 15 minutes. Forgot it? Run the command again.
 
 The admin port is plain HTTP, so only use it on your LAN or over Tailscale/VPN;
 expose only the read-only port to the internet.
+
+### Running as a dedicated user
+
+By default the monitor runs as root, like the decoders it manages. To run it as
+an unprivileged `adsb-monitor` user instead:
+
+```bash
+sudo installer/service-user.sh enable     # disable / status
+```
+
+This moves its data (history, `feeders.ini`, auto-tune and login files) to
+`/var/lib/adsb-monitor`. It also adds a systemd drop-in and a one-line sudoers
+file. The script checks that the monitor comes back, and switches back to root if
+it doesn't.
+
+As that user, everything that needs root goes through one helper,
+`sudo /opt/adsb-monitor/venv/bin/python -I /opt/adsb-monitor/helper.py <verb>`. Its
+fixed verbs are validated in `system/privileged.py`:
+- **Units:** start, stop or restart a service. systemd's own units and the rescue
+  units are refused.
+- **Files:** write the managed config files. The content is checked too: no shell
+  syntax in `/etc/default` files, and only the generated bias-tee drop-ins.
+- **Docker:** inspect, recreate or read the logs of the managed container. The flags
+  come from the existing container.
+- **Updates:** start a stack update by component name.
+- **Graphs:** restore graph data.
+
+The web process can't run a command of its choosing as root, write other files, or
+change the monitor's own unit. Root mode uses the same checks, in-process.
 
 ### Feeder kinds
 
@@ -139,6 +178,26 @@ Set `ADSB_FORCE=1` to skip the compatibility prompt on experimental/unsupported 
   See [CREDIT.md](CREDIT.md) for the full list.
 
 ---
+
+## Tests
+
+```bash
+pip install flask psutil pytest
+pytest -q                      # unit + route tests; the host is faked, no SDR needed
+```
+
+`tests/browser/` drives the dashboard in headless Chromium against a fake station
+(settings saves and their verify/rollback toasts, config revert, the feeder list,
+the "no data" badge, escaping, and no page, console or CSP errors). It is skipped
+unless Playwright is installed:
+
+```bash
+pip install pytest-timeout playwright
+python -m playwright install chromium-headless-shell
+pytest -q tests/browser
+```
+
+CI runs both on every pull request to `main`.
 
 ## See also
 

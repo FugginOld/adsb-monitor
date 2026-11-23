@@ -29,7 +29,7 @@ class FeederHealth:
                  running_for: str | None = None, flow: dict[str, Any] | None = None):
         self.status, self.detail = status, detail
         self.last_seen, self.running_for = last_seen, running_for
-        self.flow = flow or {'state': 'unknown', 'detail': '', 'age_s': None, 'since': None}
+        self.flow = flow or {'state': 'unknown', 'detail': '', 'age_s': None, 'since': None, 'mlat': None}
 
 def _dispatch_by_kind(feeder: dict[str, Any], if_service: Callable[[], T], if_docker: Callable[[], T]) -> T:
     """The one place a Feeder's kind decides which resolver runs."""
@@ -58,7 +58,7 @@ def probe(feeder: dict[str, Any]) -> FeederHealth:
                         flow=flow)
 
 def readsb_metrics() -> dict[str, int]:
-    metrics = {'aircraft': 0, 'msg_rate': 0, 'max_range_nm': 0}
+    metrics = {'aircraft': 0, 'msg_rate': 0, 'max_range_nm': 0, 'max_range_15m_nm': 0}
     ac_data = app.HOST.read_json(os.path.join(app.READSB_JSON, 'aircraft.json'))
     if ac_data:
         aircraft = [a for a in ac_data.get('aircraft', []) if a.get('seen', 999) < 60]
@@ -70,4 +70,9 @@ def readsb_metrics() -> dict[str, int]:
     if stats:
         msgs = stats.get('last1min', {}).get('messages_valid', 0)
         metrics['msg_rate'] = round(msgs / 60)
+        # readsb's own 15-min maximum, as a cross-check on the live value.
+        # Unlike r_dst this one is in metres.
+        dist_m = stats.get('last15min', {}).get('max_distance')
+        if isinstance(dist_m, (int, float)) and dist_m > 0:
+            metrics['max_range_15m_nm'] = round(dist_m / 1852)
     return metrics
