@@ -50,6 +50,19 @@ def admin_auth(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def change_records(monkeypatch, request):
+    """The "what changed" feed (system/changes.py) writes to history.db. Capture
+    its rows here instead, unless the test uses ledger_db (a real temp DB)."""
+    from system import changes
+    changes.reset()
+    rows = []
+    if 'ledger_db' not in request.fixturenames:
+        monkeypatch.setattr(changes, 'record_change', lambda *a, **k: rows.append(a) or True)
+    yield rows
+    changes.reset()
+
+
+@pytest.fixture(autouse=True)
 def no_background_checks(monkeypatch):
     """Settings saves start a verify thread (system/apply_guard.py) that would
     sleep and then poll a later test's FakeHost. Record checks instead; tests of

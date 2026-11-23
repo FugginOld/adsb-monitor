@@ -128,6 +128,7 @@
     <div class="signal-row"><span class="signal-label">RSSI</span><div class="signal-bar-wrap"><div class="signal-bar rssi" id="sig-rssi-bar" style="width:0%"></div></div><span class="signal-val" id="sig-rssi">—</span></div>
     <div class="signal-row"><span class="signal-label">SNR</span><div class="signal-bar-wrap"><div class="signal-bar snr" id="sig-snr-bar" style="width:0%"></div></div><span class="signal-val" id="sig-snr">—</span></div>
     <div class="signal-row"><span class="signal-label">Noise</span><div class="signal-bar-wrap"><div class="signal-bar noise" id="sig-noise-bar" style="width:0%"></div></div><span class="signal-val" id="sig-noise">—</span></div>
+    <div class="signal-row" title="Share of DF17 messages at the strong-signal RSSI or above, the number auto-tune acts on. Last 60 minutes."><span class="signal-label">Strong</span><svg class="signal-spark" id="spark-strong" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="Strong-signal share, last 60 minutes"></svg><span class="signal-val" id="sig-strong">—</span></div>
     <div class="gain-rec hidden" id="gain-rec"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
       <a id="signal-history-link" href="#" target="_blank" style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:3px;"><i class="ti ti-chart-line" style="font-size:12px" aria-hidden="true"></i> view signal history <i class="ti ti-external-link" style="font-size:11px" aria-hidden="true"></i></a>
@@ -166,6 +167,7 @@
     <nav class="view-toggle" aria-label="View">
       <button class="vbtn active" id="btn-map"      data-click="showView" data-view="map"><i class="ti ti-map-pin" aria-hidden="true"></i> <span>Map</span></button>
       <button class="vbtn"        id="btn-graphs"   data-click="showView" data-view="graphs"><i class="ti ti-chart-line" aria-hidden="true"></i> <span>Graphs</span></button>
+      <button class="vbtn"        id="btn-timeline" data-click="showView" data-view="timeline"><i class="ti ti-timeline" aria-hidden="true"></i> <span>Timeline</span></button>
       <button class="vbtn"        id="btn-settings" data-click="showView" data-view="settings"><i class="ti ti-settings" aria-hidden="true"></i> <span>Settings</span></button>
       <button class="vbtn"        id="btn-logout"   data-click="logout" title="Log out of the admin port"><i class="ti ti-logout" aria-hidden="true"></i> <span>Log out</span></button>
     </nav>
@@ -179,6 +181,22 @@
   <!-- Graphs -->
   <div id="view-graphs" class="hidden" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
     <iframe class="fill-frame" id="graphs-frame" src="" title="graphs1090"></iframe>
+  </div>
+
+  <!-- Timeline: gain steps against traffic, and what changed (static/js/timeline.js) -->
+  <div id="view-timeline" class="hidden tl-view">
+    <div class="tl-controls">
+      <div class="tl-seg" role="group" aria-label="Time window">
+        <button class="btn btn-secondary" data-click="setTimelineHours" data-hours="6"  aria-pressed="false">6 h</button>
+        <button class="btn btn-secondary" data-click="setTimelineHours" data-hours="12" aria-pressed="false">12 h</button>
+        <button class="btn btn-secondary" data-click="setTimelineHours" data-hours="24" aria-pressed="true">24 h</button>
+      </div>
+      <button class="btn btn-secondary" data-click="toggleTimelineTable" aria-pressed="false"><i class="ti ti-table" aria-hidden="true"></i> <span>Table</span></button>
+      <div class="tl-links" id="tl-links"></div>
+    </div>
+    <div class="tl-chart" id="tl-chart">Loading…</div>
+    <h2 class="tl-h">What changed</h2>
+    <ul class="tl-changes" id="tl-changes" aria-live="polite"></ul>
   </div>
 
   <!-- Settings -->
@@ -409,6 +427,7 @@
 <script src="/static/js/status.js"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/logs.js"></script>
+<script src="/static/js/timeline.js"></script>
 <script src="/static/js/init.js"></script>
 </body>
 </html>
