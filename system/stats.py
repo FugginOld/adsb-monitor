@@ -154,9 +154,10 @@ def get_band_stats() -> dict[str, Any]:
     readsb_text = app.HOST.read_text(app.READSB_DEFAULT) or ''
     has_rtl1090 = '--device-type rtlsdr' in readsb_text
     out: dict[str, Any] = {
-        'has_airspy':  os.path.exists(app.AIRSPY_DEFAULT),
+        # through the host seam (not os.path), so tests and the fake station see the same host
+        'has_airspy':  app.HOST.read_text(app.AIRSPY_DEFAULT) is not None,
         'has_rtl1090': has_rtl1090,
-        'has_978':     os.path.exists(app.DUMP978_DEFAULT),
+        'has_978':     app.HOST.read_text(app.DUMP978_DEFAULT) is not None,
         'b1090': None, 'b978': None,
     }
     uat_count = 0
