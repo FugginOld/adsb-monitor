@@ -36,6 +36,28 @@ jobs:
       - run: pip install flask psutil pytest
       - run: pytest -q
 
+  browser:
+    name: browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # Pinned so the cached browser matches the library; bump both together.
+      - run: pip install flask psutil pytest pytest-timeout playwright==1.65.2
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.65.2-headless-shell
+      # --with-deps installs the system libraries Chromium needs (apt, runs as root).
+      - run: python -m playwright install --with-deps chromium-headless-shell
+      # Headless Chromium against the app on a fake station (tests/browser/):
+      # settings saves and their verify/rollback toasts, config revert, feeder
+      # list edits, the no-data badge, escaping, and no page/console/CSP errors.
+      - run: pytest -q tests/browser
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest  # shellcheck is preinstalled on GitHub-hosted runners
