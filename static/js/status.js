@@ -138,6 +138,10 @@ async function loadSparklines() {
     sparkMsgData = hist.map(h=>h.msg_rate);
     drawSparkline('spark-ac',  sparkAcData,  '#4ade80');
     drawSparkline('spark-msg', sparkMsgData, '#60a5fa');
+    const strong = hist.map(h=>h.strong_pct).filter(v=>v!=null);
+    drawSparkline('spark-strong', strong, '#a78bfa');
+    const sv = document.getElementById('sig-strong');
+    if (sv) sv.textContent = strong.length ? strong[strong.length-1].toFixed(1)+'%' : '—';
   } catch {}
 }
 
@@ -293,10 +297,11 @@ async function applyRecommendedGain() {
 // opens/closes the system-log stream as you enter/leave Settings.
 // ───────────────────────────────────────────────────────────────────────────
 
-const VIEWS = ['map','graphs','settings'];
+const VIEWS = ['map','graphs','timeline','settings'];
 const TLABELS = {
   map:      '<i class="ti ti-map-pin" aria-hidden="true"></i> <span>tar1090 live map</span>',
   graphs:   '<i class="ti ti-chart-line" aria-hidden="true"></i> <span>Performance graphs</span>',
+  timeline: '<i class="ti ti-timeline" aria-hidden="true"></i> <span>Reception timeline</span>',
   settings: '<i class="ti ti-settings" aria-hidden="true"></i> <span>Settings</span>',
 };
 function showView(v) {
@@ -307,4 +312,5 @@ function showView(v) {
   document.getElementById('toolbar-label').innerHTML=TLABELS[v]||'';
   if (v==='settings') { loadSettings(); openSysLog(); }
   else closeSysLog();
+  if (v==='timeline') openTimeline(); else closeTimeline();
 }

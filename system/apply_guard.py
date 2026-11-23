@@ -96,9 +96,16 @@ def _restore(prev: dict[str, str | None], backups: dict[str, str] | None) -> Non
         app.HOST.elevated('systemctl', 'daemon-reload')
 
 
+_FEED_LEVEL = {'verified': 'ok', 'rolled_back': 'warn', 'rollback_failed': 'error'}
+
+
 def _set(check: dict[str, Any], state: str, message: str) -> None:
     with _lock:
         check['state'], check['message'] = state, message
+    if state in _FEED_LEVEL:            # the Timeline view's "what changed" feed
+        from system import changes
+        what = 'revert' if check.get('backups') else 'settings save'
+        changes.record('config', check['unit'], f'{what}: {message}', _FEED_LEVEL[state])
 
 
 def _rollback(check: dict[str, Any], why: str) -> None:
@@ -230,6 +237,8 @@ def revert(path: str) -> dict[str, Any]:
     if path.startswith('/etc/systemd/'):
         app.HOST.elevated('systemctl', 'daemon-reload')
     if not item['unit']:
+        from system import changes
+        changes.record('config', item['label'], 'restored from the backup')
         return {'ok': True, 'message': f'{item["label"]} restored from the backup'}
     check = restart_and_verify(item['unit'], prev, backups={path: bak})
     return {'ok': True, 'message': f'{item["label"]} restored; checking {item["unit"]}', 'check': check}

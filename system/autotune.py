@@ -279,6 +279,30 @@ def _read_stats() -> dict[str, Any] | None:
     s = app.HOST.read_json(app.AIRSPY_STATS)
     return s if isinstance(s, dict) else None
 
+def signal_sample(now: float | None = None) -> dict[str, float] | None:
+    """The Airspy's last minute for the metrics table: strong-signal % (the number
+    auto-tune acts on), median SNR and noise, and gain. None without fresh stats."""
+    s = _read_stats()
+    now = time.time() if now is None else now
+    try:
+        if not s or now - float(s.get('now') or 0) > STATS_MAX_AGE_S:
+            return None
+        out: dict[str, float] = {}
+        buckets = s.get('rssi_buckets')
+        if isinstance(buckets, list) and buckets:
+            pct, total = strong_pct([int(b) for b in buckets], int(load_config()['strong_rssi_db']))
+            if total > 0:
+                out['strong_pct'] = round(pct, 2)
+        for key in ('snr', 'noise'):
+            med = (s.get(key) or {}).get('median')
+            if med is not None:
+                out[key] = float(med)
+        if s.get('gain') is not None:
+            out['gain'] = float(s['gain'])
+        return out or None
+    except (TypeError, ValueError, AttributeError):
+        return None
+
 def _stats_gain(stats: dict[str, Any]) -> str | None:
     try:
         g = float(stats.get('gain'))  # type: ignore[arg-type]

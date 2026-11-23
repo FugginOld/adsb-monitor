@@ -124,3 +124,73 @@ def test_labels_from_feeders_ini_are_escaped(page, station):
     expect(page.locator('#feeder-cards')).to_contain_text('<img src=x')
     assert page.evaluate('window.__pwned === undefined')
     assert page.problems == []
+
+
+def seed_timeline(hours=24):
+    """24 h of plausible samples with two gain steps and a few other changes."""
+    import math
+    import time as _t
+    from system import db
+    now = _t.time()
+    real_time = db.time.time
+    try:
+        for i in range(int(hours * 3600 / 300)):
+            ts = now - hours * 3600 + i * 300
+            day = 0.5 + 0.5 * math.sin((ts % 86400) / 86400 * 2 * math.pi - 1.8)
+            gain = 15.0 if i < 120 else 13.0 if i < 230 else 14.0
+            sig = {'strong_pct': max(0.2, 6.5 - (15 - gain) * 2.2 + day), 'gain': gain,
+                   'snr': 12.0, 'noise': 37.0}
+            db.time.time = lambda ts=ts: ts
+            db.record_metrics(int(40 + 80 * day), int(300 + 1500 * day), int(140 + 50 * day), sig)
+            if i == 120:
+                db.record_gain_change('15', '13', 'auto-tune: 6.5% strong signals > 5% — lowering gain 15 → 13')
+            if i == 230:
+                db.record_gain_change('13', '14', 'auto-tune: 0.3% strong signals < 0.5% — raising gain 13 → 14')
+                db.record_change('restart', 'airspy_adsb', 'airspy_adsb restarted')
+            if i == 250:
+                db.record_change('config', 'readsb', 'settings save: readsb restarted and is running with the new settings', 'ok')
+            if i == 260:
+                db.record_dataflow_event('fr24feed', 'stale', 'FR24 link disconnected')
+    finally:
+        db.time.time = real_time
+
+
+def test_timeline_view(page, station):
+    seed_timeline()
+    page.click('#btn-timeline')
+    expect(page.locator('#view-timeline')).to_be_visible()
+    expect(page.locator('#tl-chart svg .tl-line')).to_have_count(4)
+    expect(page.locator('#tl-chart .tl-marker')).to_have_count(2)
+    assert sorted(page.locator('#tl-chart .tl-marker-label').all_text_contents()) == ['13→14', '15→13']
+    expect(page.locator('#tl-changes .tl-change')).to_have_count(5)
+    expect(page.locator('#tl-changes')).to_contain_text('gain 13 → 14')
+    expect(page.locator('#tl-links')).to_contain_text('All tracks, last 24 h')
+    box = page.locator('#tl-chart .tl-hit').bounding_box()
+    page.mouse.move(box['x'] + box['width'] * 0.6, box['y'] + 60)
+    expect(page.locator('#tl-tip')).to_be_visible()
+    expect(page.locator('#tl-tip')).to_contain_text('Airspy gain')
+    page.click('[data-click="setTimelineHours"][data-hours="6"]')
+    expect(page.locator('#tl-links')).to_contain_text('last 6 h')
+    page.click('[data-click="toggleTimelineTable"]')
+    expect(page.locator('#tl-chart table tbody tr').first).to_be_visible()
+    shots = os.environ.get('TIMELINE_SHOTS')
+    if shots:
+        page.click('[data-click="toggleTimelineTable"]')
+        page.click('[data-click="setTimelineHours"][data-hours="24"]')
+        expect(page.locator('#tl-chart .tl-marker')).to_have_count(2)
+        page.mouse.move(box['x'] + box['width'] * 0.6, box['y'] + 60)
+        page.screenshot(path=f'{shots}/timeline-light.png', full_page=True)
+        page.click('[data-click="toggleTheme"]')
+        page.screenshot(path=f'{shots}/timeline-dark.png', full_page=True)
+        page.set_viewport_size({'width': 390, 'height': 900})
+        page.wait_for_timeout(400)
+        page.screenshot(path=f'{shots}/timeline-phone.png', full_page=True)
+    assert page.problems == []
+
+
+def test_strong_signal_sparkline(page, station):
+    seed_timeline(hours=1)
+    page.reload()
+    expect(page.locator('#sig-strong')).to_have_text(re.compile(r'^\d+\.\d%$'), timeout=15000)
+    expect(page.locator('#spark-strong polyline')).to_have_count(1)
+    assert page.problems == []

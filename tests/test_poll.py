@@ -105,7 +105,7 @@ def test_enforce_sdr_presence_step_propagates_failure(monkeypatch):
 def test_sample_metrics_step_calls_through(monkeypatch):
     recorded = []
     monkeypatch.setattr(poll_mod, 'readsb_metrics', lambda: {'aircraft': 3, 'msg_rate': 12, 'max_range_nm': 40})
-    monkeypatch.setattr(poll_mod, 'record_metrics', lambda aircraft, msg_rate, max_range_nm: recorded.append((aircraft, msg_rate, max_range_nm)))
+    monkeypatch.setattr(poll_mod, 'record_metrics', lambda aircraft, msg_rate, max_range_nm, signal=None: recorded.append((aircraft, msg_rate, max_range_nm)))
     _sample_metrics_step()
     assert recorded == [(3, 12, 40)]
 

@@ -21,6 +21,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   restores every file the save changed (removing one it created), reloads systemd for
   drop-ins, and restarts again; `.adsb-monitor.bak` stays the last good copy. The save
   toast follows the check (`GET /api/settings/check/<id>`).
+- Timeline view (toolbar → Timeline; `GET /api/timeline?hours=6|12|24`, both ports):
+  - **Chart:** messages/s, max range, Airspy gain and strong-signal % on one shared
+    time axis, one panel each. Each gain step is marked through every panel, and
+    auto-tune's thresholds are drawn on the strong % panel.
+  - **Reading it:** a crosshair and tooltip read all four panels at once, a table
+    view holds the same numbers, and restarts and other changes sit in an events
+    lane.
+  - **What changed:** a feed merging gain steps, restarts, config saves and reverts,
+    finished stack updates, service up/down and data-flow changes.
+  - **tar1090 links:** all tracks for the window (`?pTracks=N`), the range outline,
+    and the heatmap when readsb runs with `--heatmap`.
+- Metrics also record the Airspy's strong-signal %, median SNR and noise, and gain
+  every 30 s (new columns, added to existing databases on start). The Airspy panel
+  shows a 60-minute strong-signal % sparkline.
+- `change_events` table (`system/changes.py`):
+  - **Restarts:** caught for any cause, from systemd's
+    `ActiveEnterTimestampMonotonic` or docker's `StartedAt`.
+  - **Config saves and reverts:** recorded when their verify-or-rollback check ends.
+  - **Stack updates:** recorded once when they finish.
 - Run as a dedicated user (`sudo installer/service-user.sh enable|disable|status`):
   - **The switch:** the monitor runs as `adsb-monitor`, with its data in
     `/var/lib/adsb-monitor`. The script rolls back to root if the monitor doesn't

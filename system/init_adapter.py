@@ -211,6 +211,9 @@ class InitAdapter:
         raise NotImplementedError
     def running_since(self, service: str) -> str | None:
         raise NotImplementedError
+    def start_marker(self, service: str) -> str | None:
+        """An opaque value that changes when the service (re)starts; None if unknown."""
+        return None
 
 class SystemdAdapter(InitAdapter):
     def __init__(self, host: LinuxHost):
@@ -225,6 +228,12 @@ class SystemdAdapter(InitAdapter):
     def action(self, service: str, act: str) -> tuple[bool, str]:
         r = self._host.elevated('systemctl', act, service, timeout=60)
         return r.ok, r.out + r.err
+    def start_marker(self, service: str) -> str | None:
+        # changes exactly when the unit (re)starts; '0' = never active since boot
+        r = self._host.run(['systemctl', 'show', '-p', 'ActiveEnterTimestampMonotonic',
+                            '--value', service], timeout=3)
+        v = r.out.strip()
+        return v if r.ok and v.isdigit() and v != '0' else None
     def running_since(self, service: str) -> str | None:
         r = self._host.run(
             ['systemctl', 'show', service, '--property=ActiveEnterTimestamp'], timeout=3)

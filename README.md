@@ -10,9 +10,10 @@ A self-hosted web dashboard for monitoring an ADS-B receiver station. Shows live
 |---|---|
 | **Live status** | Active / down badge for every feeder and service, with last-seen time |
 | **Data-flow alerts** | Flags a feeder that is running but has sent no data for 5 minutes (upload disconnected, lost input, stalled client): amber "no data" badge plus a banner line |
+| **Reception timeline** | Messages/s, max range, Airspy gain and strong-signal % over 6–24 h on one time axis, with each gain step marked, so you can see whether a step helped. A "what changed" feed below merges gain steps, restarts, config saves and reverts, stack updates, service up/down and data-flow changes. Links to tar1090's all-tracks coverage view, range outline and heatmap (when readsb writes one) |
 | **Uptime history** | 7-day daily bars + aggregate % per service, backed by SQLite |
 | **Dual-band** | 1090 MHz ADS-B + 978 MHz UAT on two RTL-SDRs, merged onto one map |
-| **Per-band signal** | 1090 block (RSSI / SNR / noise) and 978 block (RSSI), shown only for present bands; Airspy block hidden when absent |
+| **Per-band signal** | 1090 block (RSSI / SNR / noise) and 978 block (RSSI), shown only for present bands; Airspy block hidden when absent. The Airspy block adds a 60-minute strong-signal % sparkline, the number auto-tune acts on |
 | **readsb deep stats** | Aircraft count, message rate, range, signal metrics |
 | **Version checking** | Current vs latest for each stack component |
 | **Settings** | Per-SDR gain + bias-tee (1090 / 978), sharing keys, lat/lon/altitude, receiver options in-browser |

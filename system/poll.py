@@ -2,8 +2,8 @@
 
 A daemon thread (started in run.py) that runs forever: every 30s it records
 each service's status into the events ledger, checks each feeder's data flow
-(system/dataflow.py), samples readsb metrics
-into the metrics table, and runs the Airspy gain auto-tune (system/autotune.py,
+(system/dataflow.py), samples readsb metrics and the Airspy's signal into the
+metrics table, records restarts and finished stack updates (system/changes.py), and runs the Airspy gain auto-tune (system/autotune.py,
 a no-op unless enabled). This is what populates the uptime history and
 sparklines over time, independent of whether anyone has the dashboard open.
 
@@ -30,8 +30,8 @@ from __future__ import annotations
 import time
 from typing import Callable, NoReturn
 
-from system.autotune import autotune_step
-from system import dataflow
+from system.autotune import autotune_step, signal_sample
+from system import changes, dataflow
 from system.config_io import load_config
 from system.db import record_metrics, record_service_event
 from system.feeders import feeder_status, readsb_metrics
@@ -73,14 +73,19 @@ def _check_dataflow_step() -> None:
 
 def _sample_metrics_step() -> None:
     m = readsb_metrics()
-    record_metrics(m['aircraft'], m['msg_rate'], m['max_range_nm'])
+    record_metrics(m['aircraft'], m['msg_rate'], m['max_range_nm'], signal_sample())
+
+def _record_changes_step() -> None:
+    """Restarts and finished stack updates for the "what changed" feed (system/changes.py)."""
+    changes.detect_restarts(load_config())
+    changes.record_stack_updates()
 
 def _autotune_step() -> None:
     autotune_step()
 
 def _default_steps() -> list[Step]:
     return [_enforce_sdr_presence_step, _record_feeder_statuses_step, _check_dataflow_step,
-            _sample_metrics_step, _autotune_step]
+            _sample_metrics_step, _record_changes_step, _autotune_step]
 
 def _poll_once(steps: list[Step]) -> int:
     """Run each step once, isolating failures from each other.
