@@ -163,7 +163,7 @@ def _opt_in_receiver(text: str, flag: str) -> str | None:
 def parse_sdr1090() -> dict[str, Any]:
     text = app.HOST.read_text(app.READSB_DEFAULT) or ''
     return {'gain': _opt_in_receiver(text, '--gain') or 'auto',
-            'biastee': os.path.exists(BIASTEE_1090_CONF)}
+            'biastee': app.HOST.read_text(BIASTEE_1090_CONF) is not None}
 
 def _set_receiver_flag(text: str, flag: str, value: str | None) -> str:
     """Set/replace `flag value` inside RECEIVER_OPTIONS="...". value None removes it."""
