@@ -213,7 +213,7 @@ def get_service_uptime_str(service: str) -> str | None:
 
 def get_docker_uptime_str(container: str) -> str | None:
     try:
-        r = app.HOST.run(['docker', 'inspect', '--format', '{{.State.StartedAt}}', container], timeout=5)
+        r = app.HOST.elevated('docker-inspect', container, '{{.State.StartedAt}}', timeout=10)
         ts_str = r.out.strip()
         if ts_str:
             dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))

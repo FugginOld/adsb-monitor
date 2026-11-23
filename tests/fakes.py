@@ -57,6 +57,22 @@ class FakeHost:
         self.files[path] = data
     def write_bytes(self, path, data, backup=False):
         self.write_text(path, data.decode('utf-8'), backup=backup)
+    def write_raw(self, path, data, backup=False):
+        self.write_bytes(path, data, backup=backup)
+    # Privileged requests run the real gateway (validation included) against this fake.
+    helper_argv = None
+    def elevated(self, verb, *args, stdin=b'', timeout=60):
+        from system import privileged
+        self.calls.append(('elevated', verb, args))
+        try:
+            return privileged.dispatch(self, verb, list(args), stdin)
+        except privileged.Refused as e:
+            return Result(77, '', f'refused: {e}')
+    def elevated_argv(self, verb, *args):
+        from system import privileged
+        return privileged.docker_logs_argv(args[0], int(args[1]))
+    def makedirs(self, path):
+        self.calls.append(('makedirs', path))
 
 
 class FakeInitAdapter(InitAdapter):

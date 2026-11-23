@@ -67,6 +67,35 @@ logins from it are refused for 15 minutes. Forgot it? Run the command again.
 The admin port is plain HTTP, so only use it on your LAN or over Tailscale/VPN;
 expose only the read-only port to the internet.
 
+### Running as a dedicated user
+
+By default the monitor runs as root, like the decoders it manages. To run it as
+an unprivileged `adsb-monitor` user instead:
+
+```bash
+sudo installer/service-user.sh enable     # disable / status
+```
+
+This moves its data (history, `feeders.ini`, auto-tune and login files) to
+`/var/lib/adsb-monitor`. It also adds a systemd drop-in and a one-line sudoers
+file. The script checks that the monitor comes back, and switches back to root if
+it doesn't.
+
+As that user, everything that needs root goes through one helper,
+`sudo /opt/adsb-monitor/venv/bin/python -I /opt/adsb-monitor/helper.py <verb>`. Its
+fixed verbs are validated in `system/privileged.py`:
+- **Units:** start, stop or restart a service. systemd's own units and the rescue
+  units are refused.
+- **Files:** write the managed config files. The content is checked too: no shell
+  syntax in `/etc/default` files, and only the generated bias-tee drop-ins.
+- **Docker:** inspect, recreate or read the logs of the managed container. The flags
+  come from the existing container.
+- **Updates:** start a stack update by component name.
+- **Graphs:** restore graph data.
+
+The web process can't run a command of its choosing as root, write other files, or
+change the monitor's own unit. Root mode uses the same checks, in-process.
+
 ### Feeder kinds
 
 `feeders.ini` declares each monitored unit as either:

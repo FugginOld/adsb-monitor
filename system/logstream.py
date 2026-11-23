@@ -36,7 +36,7 @@ def _journalctl(*unit_args: str) -> list[str]:
 def _log_command(feeder: dict[str, Any]) -> list[str]:
     """The follow-logs command for a Feeder — the single kind-dispatch for logs."""
     if feeder['kind'] == 'docker':
-        return ['docker', 'logs', '-f', '--tail', str(app.LOG_LINES), '--timestamps', feeder['key']]
+        return app.HOST.elevated_argv('docker-logs', feeder['key'], str(app.LOG_LINES))
     return _journalctl('-u', feeder['key'])
 
 def stream_logs(cmd: list[str]) -> Iterator[str]:

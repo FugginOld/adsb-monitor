@@ -80,6 +80,7 @@ for target in $TARGETS; do
       # Preserve feeders.ini and history.db
       cp "$SCRIPT_DIR/../app.py" "$DEST/app.py"
       cp "$SCRIPT_DIR/../run.py" "$DEST/run.py"
+      cp "$SCRIPT_DIR/../helper.py" "$DEST/helper.py"
       # rm -rf then copy: if $DEST/system already exists (a prior deploy),
       # `cp -r` nests a copy inside it instead of overwriting, and stale/
       # removed modules are left behind for Python to load by accident.

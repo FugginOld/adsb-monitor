@@ -164,8 +164,8 @@ def _readsb(now: float) -> Observation:
 
 
 def _docker(name: str) -> Observation:
-    r = app.HOST.run(['docker', 'inspect', '--format',
-                      '{{if .State.Health}}{{.State.Health.Status}}{{end}}', name], timeout=5)
+    r = app.HOST.elevated('docker-inspect', name,
+                          '{{if .State.Health}}{{.State.Health.Status}}{{end}}', timeout=10)
     health = r.out.strip() if r.ok else ''
     if health == 'healthy':
         return Observation(True, 'container health check passing')

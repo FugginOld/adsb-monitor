@@ -86,14 +86,14 @@ def _restore(prev: dict[str, str | None], backups: dict[str, str] | None) -> Non
         if app.HOST.read_text(path) == old:
             continue
         if old is None:
-            app.HOST.run(['rm', '-f', path])
+            app.HOST.elevated('rm', path)
         else:
             app.HOST.write_text(path, old)          # no backup: .bak stays the last good copy
         reload = reload or path.startswith('/etc/systemd/')
     for path, data in (backups or {}).items():
         app.HOST.write_text(os.path.realpath(path) + BACKUP_SUFFIX, data)
     if reload:
-        app.HOST.run(['systemctl', 'daemon-reload'])
+        app.HOST.elevated('systemctl', 'daemon-reload')
 
 
 def _set(check: dict[str, Any], state: str, message: str) -> None:
@@ -228,7 +228,7 @@ def revert(path: str) -> dict[str, Any]:
         raise ValueError('the backup is the same as the current file')
     app.HOST.write_text(path, bak, backup=True)
     if path.startswith('/etc/systemd/'):
-        app.HOST.run(['systemctl', 'daemon-reload'])
+        app.HOST.elevated('systemctl', 'daemon-reload')
     if not item['unit']:
         return {'ok': True, 'message': f'{item["label"]} restored from the backup'}
     check = restart_and_verify(item['unit'], prev, backups={path: bak})

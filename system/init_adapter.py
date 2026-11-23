@@ -111,10 +111,70 @@ class LinuxHost:
                 return json.loads(r.read().decode('utf-8', 'replace'))
         except Exception:
             return None
+    # ── privilege boundary (system/privileged.py) ──────────────────────────
+    # helper_argv is None when running as root: elevated() then validates and
+    # acts in-process. As the dedicated user it is the sudo command line of
+    # /opt/adsb-monitor/helper.py, which runs the same checks as root.
+    helper_argv: list[str] | None = None
+
+    def __init__(self) -> None:
+        if os.geteuid() != 0:
+            self.helper_argv = ['sudo', '-n', '/opt/adsb-monitor/venv/bin/python', '-I',
+                                '/opt/adsb-monitor/helper.py']
+
+    def elevated(self, verb: str, *args: str, stdin: bytes = b'', timeout: int = 60) -> Result:
+        """A privileged request (see system/privileged.py); refused requests are Result(77)."""
+        if self.helper_argv is None:
+            from system import privileged
+            try:
+                return privileged.dispatch(self, verb, list(args), stdin)
+            except privileged.Refused as e:
+                logger.warning('refused privileged request %s: %s', verb, e)
+                return Result(77, '', f'refused: {e}')
+        try:
+            r = subprocess.run([*self.helper_argv, verb, *args], input=stdin, capture_output=True,
+                               timeout=timeout)
+            return Result(r.returncode, r.stdout.decode('utf-8', 'replace'),
+                          r.stderr.decode('utf-8', 'replace'))
+        except Exception:
+            logger.warning('privileged helper failed: %s', verb, exc_info=True)
+            return Result(1, '', 'privileged helper failed')
+
+    def elevated_argv(self, verb: str, *args: str) -> list[str]:
+        """argv for a streaming privileged command (docker-logs)."""
+        if self.helper_argv is None:
+            from system import privileged
+            return privileged.docker_logs_argv(args[0], int(args[1]))
+        return [*self.helper_argv, verb, *args]
+
+    def _own(self, path: str) -> bool:
+        """True for the monitor's own data files, which it writes directly."""
+        import app
+        data = os.path.realpath(app.DATA_DIR)
+        return os.path.commonpath([data, os.path.realpath(path)]) == data
+
+    def makedirs(self, path: str) -> None:
+        if self._own(path):
+            os.makedirs(path, exist_ok=True)
+        elif not os.path.isdir(path):
+            r = self.elevated('mkdir', path)
+            if not r.ok:
+                raise PermissionError(r.err.strip() or f'mkdir {path} failed')
+
     def write_text(self, path: str, data: str, backup: bool = False) -> None:
         self.write_bytes(path, data.encode('utf-8'), backup=backup)
 
     def write_bytes(self, path: str, data: bytes, backup: bool = False) -> None:
+        """Write a file: the monitor's own data directly, anything else through
+        the privileged gateway (validated, then write_raw as root)."""
+        if self._own(path):
+            self.write_raw(path, data, backup=backup)
+            return
+        r = self.elevated('write', path, *(['--backup'] if backup else []), stdin=data)
+        if not r.ok:
+            raise PermissionError(r.err.strip() or f'write {path} failed')
+
+    def write_raw(self, path: str, data: bytes, backup: bool = False) -> None:
         """Replace `path` atomically: temp file in the same dir, fsync, rename.
 
         A power cut or crash leaves either the old file or the new one, never a
@@ -163,7 +223,7 @@ class SystemdAdapter(InitAdapter):
         r = self._host.run(['systemctl', 'show', '-p', 'SubState', '--value', service], timeout=3)
         return r.out.strip()
     def action(self, service: str, act: str) -> tuple[bool, str]:
-        r = self._host.run(['systemctl', act, service], timeout=10)
+        r = self._host.elevated('systemctl', act, service, timeout=60)
         return r.ok, r.out + r.err
     def running_since(self, service: str) -> str | None:
         r = self._host.run(

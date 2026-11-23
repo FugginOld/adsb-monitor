@@ -16,6 +16,7 @@ DEST=/opt/adsb-monitor
 echo "==> Updating ADS-B monitor files..."
 sudo cp app.py            ${DEST}/app.py
 sudo cp run.py            ${DEST}/run.py
+sudo cp helper.py         ${DEST}/helper.py
 # rm -rf then copy (not `cp -r system ${DEST}/system`): once ${DEST}/system
 # already exists from a prior deploy, `cp -r` nests a copy inside it instead
 # of overwriting, and stale files (e.g. a module removed/renamed upstream)

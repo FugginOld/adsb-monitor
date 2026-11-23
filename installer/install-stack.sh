@@ -375,6 +375,7 @@ DEST=/opt/adsb-monitor
 mkdir -p "$DEST/static"
 cp "$SCRIPT_DIR/../app.py" "$DEST/app.py"
 cp "$SCRIPT_DIR/../run.py" "$DEST/run.py"
+cp "$SCRIPT_DIR/../helper.py" "$DEST/helper.py"
 # rm -rf then copy: if $DEST/system already exists (re-running the installer),
 # `cp -r` nests a copy inside it instead of overwriting, and stale/removed
 # modules are left behind for Python to load by accident.
