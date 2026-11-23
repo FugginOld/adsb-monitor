@@ -167,6 +167,11 @@ body { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .toast { font-size: 12px; padding: 5px 12px; border-radius: 6px; display: none; align-items: center; }
 .toast.ok  { background: var(--ok-bg);  color: var(--ok-text);  display: inline-flex; }
 .toast.err { background: var(--err-bg); color: var(--err-text); display: inline-flex; }
+.toast.pending { background: var(--chk-bg); color: var(--chk-text); display: inline-flex; }
+.backup-list { display: grid; gap: 6px; margin-top: 4px; font-size: 12px; }
+.backup-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+              padding: 6px 8px; border: 0.5px solid var(--border); border-radius: 6px; background: var(--surface2); }
+.backup-row code { font-size: 11px; overflow-wrap: anywhere; }
 
 /* feeder config */
 .feeder-config-panel { margin-top: 6px; background: var(--surface2); border-radius: 8px; padding: 0.75rem; display: none; flex-direction: column; gap: 0.75rem; border: 0.5px solid var(--border); }

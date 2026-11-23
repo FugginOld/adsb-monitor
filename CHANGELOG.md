@@ -15,6 +15,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`max_range_15m_nm` in `/api/status`), as a cross-check on the live figure.
 - MLAT tag on the FlightAware and adsb.fi cards (piaware's built-in MLAT and
   `adsbfi-mlat`, which have no card of their own); amber when not synchronized.
+- Verify-or-rollback for manual saves (Airspy, receiver, 1090/978 SDR): after the
+  restart the monitor checks in the background that the unit stays active and, for
+  airspy_adsb and readsb, writes fresh stats (limits 240 s / 60 s / 30 s). If not, it
+  restores every file the save changed (removing one it created), reloads systemd for
+  drop-ins, and restarts again; `.adsb-monitor.bak` stays the last good copy. The save
+  toast follows the check (`GET /api/settings/check/<id>`).
+- One-click config revert (Settings → Service control → Config backups): lists managed
+  files whose backup differs (`GET /api/config/backups`, paths and times only) and
+  restores one (`POST /api/config/revert`) with the same check; the replaced version
+  becomes the backup.
 - Feeder data-flow alerts: a feeder that is running but has sent no data for 5 minutes
   gets an amber "no data" badge and a "No data:" line in the alert banner. Sources: the
   upload connector of the ADSBExchange / adsb.fi feed clients (`stats.prom`), FR24's

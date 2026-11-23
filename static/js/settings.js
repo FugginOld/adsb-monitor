@@ -36,9 +36,13 @@ function toggleCard(header) {
 // and config backup download. showToast gives the little inline success/error flash.
 // ───────────────────────────────────────────────────────────────────────────
 
-function showToast(id, ok, msg) {
+function showToast(id, ok, msg, pending) {
   const el=document.getElementById(id);
   if (!el) return;
+  if (pending) {   // stays until replaced: a background check is still running
+    el.innerHTML=`<i class="ti ti-loader-2 spinning" aria-hidden="true" style="margin-right:4px"></i>${esc(msg)}`;
+    el.className='toast pending'; clearTimeout(el._t); return;
+  }
   // Call sites prefix the message with ✓/✗. Strip it and render the state as an
   // icon: the glyph was read aloud literally ("check mark") by screen readers,
   // and role="status" on the span now announces whatever textContent remains.
@@ -52,12 +56,77 @@ function showToast(id, ok, msg) {
   if (ok) el._t=setTimeout(()=>{el.className='toast';},3500);
 }
 
+// ── Verify-or-rollback follow-up ───────────────────────────────────────────
+// Airspy / receiver / SDR saves and config reverts restart a unit, and the
+// server checks in the background that it comes back (system/apply_guard.py),
+// restoring the previous settings if it doesn't. This polls that check and
+// keeps the toast up to date until it ends.
+async function followCheck(toastId, r){
+  if(!r.ok){ showToast(toastId,false,'✗ '+(r.error||r.output||'failed')); if(r.check) loadBackups(); return; }
+  if(!r.check){ showToast(toastId,true,'✓ '+(r.message||'Saved')); return; }
+  let c=r.check;
+  const deadline=Date.now()+(c.limit_s+30)*1000;
+  while(c.state==='verifying' && Date.now()<deadline){
+    showToast(toastId,true,`Saved: ${c.message}…`,true);
+    await new Promise(res=>setTimeout(res,5000));
+    try{
+      const x=await fetch('/api/settings/check/'+encodeURIComponent(c.id)).then(r=>r.json());
+      if(!x.ok) break;
+      c=x.check;
+    }catch{ break; }
+  }
+  if(c.state==='verified') showToast(toastId,true,'✓ '+c.message);
+  else if(c.state==='superseded') showToast(toastId,true,'✓ Saved ('+c.message+')');
+  else if(c.state==='verifying') showToast(toastId,false,'✗ Saved, but the check did not finish; reload to see the state');
+  else showToast(toastId,false,'✗ '+c.message);
+  loadBackups();
+}
+
+// ── Config backups (one-click revert) ──────────────────────────────────────
+// Files the monitor saved whose `.adsb-monitor.bak` (the version before the last
+// save) differs from the current file. Reverting restores it, restarts the unit
+// and verifies like a save; the replaced version becomes the new backup.
+async function loadBackups(){
+  const box=document.getElementById('config-backups');
+  if(!box) return;
+  try{
+    const d=await fetch('/api/config/backups').then(r=>r.json());
+    if(!d.ok){ box.textContent='Could not list backups.'; return; }
+    if(!d.backups.length){ box.textContent='No backups differ from the current files.'; return; }
+    box.innerHTML=d.backups.map(b=>{
+      const when=b.backup_mtime?new Date(b.backup_mtime*1000).toLocaleString():'unknown time';
+      return `<div class="backup-row"><span><b>${esc(b.label)}</b> <code>${esc(b.path)}</code><br>`
+        + `<span class="field-hint">backup from ${esc(when)}${b.unit?' · restarts '+esc(b.unit):''}</span></span>`
+        + `<button class="btn btn-secondary" data-click="revertConfig" data-path="${esc(b.path)}" data-label="${esc(b.label)}" data-when="${esc(when)}"${b.autotune_on?' data-autotune="1"':''}>`
+        + `<i class="ti ti-arrow-back-up" aria-hidden="true"></i> Revert</button></div>`;
+    }).join('');
+  }catch{ box.textContent='Could not list backups.'; }
+}
+
+async function revertConfig(btn){
+  const {path,label,when,autotune}=btn.dataset;
+  if(!confirm(`Restore ${label} from the backup from ${when}?\n\n${path}\n\n`
+      +(autotune?'Auto-tune is on and manages the gain, so it may change the gain again after this. '
+                 +'Turn it off in Settings → Airspy SDR to keep the restored gain.\n\n':'')
+      +'The current version becomes the backup, so you can revert this too. '
+      +'If the service does not come back, the current version is put back automatically.')) return;
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/config/revert',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({path})}).then(r=>r.json());
+    await followCheck('revert-toast',r);
+  }catch(ex){ showToast('revert-toast',false,'✗ '+ex.message); }
+  btn.disabled=false;
+  loadBackups();
+}
+
 let settingsLoaded=false;
 async function loadSettings() {
   if (settingsLoaded) return;
   settingsLoaded=true;
   loadSdrSettings();   // 1090 / 978 gain + bias-tee
   loadAutotune();
+  loadBackups();
   loadStackUpdates();
   // Airspy
   try {
@@ -228,7 +297,7 @@ async function postAirspySettings(payload){
 async function saveAirspy(e){
   const btn=e.target.closest('button');btn.disabled=true;
   try{const r=await postAirspySettings({gain:document.getElementById('airspy-gain').value,sample_rate:document.getElementById('airspy-rate').value,options:document.getElementById('airspy-options').value});
-  if(!r.cancelled) showToast('airspy-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));
+  if(!r.cancelled) await followCheck('airspy-toast',r);
   else showToast('airspy-toast',false,'Not saved — auto-tune left on');}catch(ex){showToast('airspy-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }
@@ -281,7 +350,7 @@ async function saveAutotune(e){
 async function saveReceiver(e){
   const btn=e.target.closest('button');btn.disabled=true;
   try{const r=await fetch('/api/settings/receiver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:document.getElementById('recv-lat').value,lon:document.getElementById('recv-lon').value,max_range:document.getElementById('recv-range').value})}).then(r=>r.json());
-  showToast('recv-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}catch(ex){showToast('recv-toast',false,'✗ '+ex.message);}
+  await followCheck('recv-toast',r);}catch(ex){showToast('recv-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }
 
@@ -321,7 +390,7 @@ async function saveSdr(band,e){
   try{const r=await fetch('/api/settings/sdr/'+band,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({gain:document.getElementById('sdr'+band+'-gain').value,
                          biastee:document.getElementById('sdr'+band+'-biastee').checked})}).then(r=>r.json());
-  showToast('sdr'+band+'-toast',r.ok,r.ok?'✓ Saved & restarted':'✗ '+(r.error||r.output));}
+  await followCheck('sdr'+band+'-toast',r);}
   catch(ex){showToast('sdr'+band+'-toast',false,'✗ '+ex.message);}
   btn.disabled=false;
 }

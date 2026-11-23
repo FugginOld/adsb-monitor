@@ -279,9 +279,10 @@ async function applyRecommendedGain() {
     const payload = { ...cur.settings, gain: String(_gainRecommendedValue) };
     const r = await postAirspySettings(payload);
     if (r.ok) {
-      document.getElementById('gain-rec').textContent = 'Gain updated — restarting airspy_adsb...';
+      document.getElementById('gain-rec').textContent = 'Gain updated — restarting airspy_adsb and checking it comes back…';
       setTimeout(loadSignalStats, 5000);
     }
+    if (!r.cancelled) followCheck('airspy-toast', r);   // reports a rollback if airspy_adsb doesn't come back
   } catch {}
   btn.disabled = false;
 }

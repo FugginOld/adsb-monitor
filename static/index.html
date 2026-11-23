@@ -373,6 +373,10 @@
               <button class="btn btn-secondary" data-click="pickFile" data-target="import-graphs-file"><i class="ti ti-upload" aria-hidden="true"></i> Import graph data</button>
               <span class="toast" role="status" id="backup-toast"></span>
             </div>
+            <div class="field-label" style="margin-top:10px">Config backups</div>
+            <div class="field-hint">The version before the last save, for each file the monitor wrote. Revert restores it and checks the service comes back.</div>
+            <div id="config-backups" class="backup-list" aria-live="polite">—</div>
+            <span class="toast" role="status" id="revert-toast"></span>
             <span class="toast" role="status" id="restart-toast"></span>
           </div>
         </div>

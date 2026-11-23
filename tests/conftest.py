@@ -50,6 +50,19 @@ def admin_auth(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_background_checks(monkeypatch):
+    """Settings saves start a verify thread (system/apply_guard.py) that would
+    sleep and then poll a later test's FakeHost. Record checks instead; tests of
+    the check itself call apply_guard.run_check() with a fake clock."""
+    from system import apply_guard
+    started = []
+    monkeypatch.setattr(apply_guard, '_start', started.append)
+    with apply_guard._lock:
+        apply_guard._checks.clear()
+    return started
+
+
+@pytest.fixture(autouse=True)
 def fresh_dataflow_state():
     """Each test starts with no data-flow timers (system/dataflow.py keeps them in memory)."""
     from system import dataflow

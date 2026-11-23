@@ -97,6 +97,11 @@ class LinuxHost:
                 return json.load(f)
         except Exception:
             return None
+    def mtime(self, path: str) -> float | None:
+        try:
+            return os.stat(path).st_mtime
+        except OSError:
+            return None
     def http_json(self, url: str, timeout: float = 3) -> Any | None:
         """GET a local status endpoint (e.g. fr24feed's monitor.json); None on any failure."""
         try:

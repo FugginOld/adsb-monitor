@@ -24,6 +24,10 @@ class FakeHost:
     def run(self, cmd, timeout=10):
         key = tuple(cmd)
         self.calls.append(('run', key))
+        if key[:2] == ('rm', '-f') and key not in self.commands:
+            for p in key[2:]:
+                self.files.pop(p, None)
+            return Result(0, '', '')
         return self.commands.get(key, self.default_command)
     def read_text(self, path):
         self.calls.append(('read_text', path))
@@ -34,6 +38,9 @@ class FakeHost:
         if raw is None:
             return None
         return json.loads(raw) if isinstance(raw, str) else raw
+    def mtime(self, path):
+        self.calls.append(('mtime', path))
+        return 1_700_000_000.0 if path in self.files else None
     def http_json(self, url, timeout=3):
         self.calls.append(('http_json', url))
         raw = self.files.get(url)
@@ -42,7 +49,11 @@ class FakeHost:
         self.calls.append(('write_text', path, data))
         self.writes[path] = data
         if backup:
+            # like LinuxHost: keep the replaced contents as <path>.adsb-monitor.bak when they differ
             self.backups.append(path)
+            old = self.files.get(path)
+            if isinstance(old, str) and old != data:
+                self.files[path + '.adsb-monitor.bak'] = old
         self.files[path] = data
     def write_bytes(self, path, data, backup=False):
         self.write_text(path, data.decode('utf-8'), backup=backup)
