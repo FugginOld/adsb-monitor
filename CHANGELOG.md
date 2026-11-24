@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Timeline: with a long "What changed" list the chart box shrank to 120 px and
+  the charts spilled over the list. The chart now keeps its full height.
+- Timeline: a burst of gain steps no longer prints its labels on top of each
+  other (a label is skipped when it would overlap the previous one), and the
+  "lower gain" / "raise gain" threshold labels no longer overlap.
+
 ## [1.1.0] - 2026-11-22
 
 ### Added

@@ -188,6 +188,50 @@ def test_timeline_view(page, station):
     assert page.problems == []
 
 
+def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
+    """A night of auto-tune steps every 15 min fills the change list past the
+    screen; the chart must keep its full height (it used to shrink to 120 px and
+    spill over the list) and neither the step labels nor the two threshold
+    labels may print on top of each other."""
+    import time as _t
+    from system import db
+    seed_timeline()
+    now, real_time = _t.time(), db.time.time
+    try:
+        gains = [13, 14, 15, 16, 15, 14, 13, 14, 15, 16, 15, 14, 15, 14, 15, 14, 13]
+        for i, (old, new) in enumerate(zip(gains, gains[1:])):
+            ts = now - 18 * 3600 + i * 900
+            db.time.time = lambda ts=ts: ts
+            db.record_gain_change(str(old), str(new), f'auto-tune: lowering/raising gain {old} → {new}')
+            db.time.time = lambda ts=ts + 30: ts
+            db.record_change('restart', 'airspy_adsb', 'airspy_adsb restarted', ref=f'busy-{i}')
+    finally:
+        db.time.time = real_time
+    page.click('#btn-timeline')
+    expect(page.locator('#tl-chart .tl-marker')).to_have_count(18)
+    assert page.locator('#tl-changes .tl-change').count() > 30
+
+    chart = page.locator('#tl-chart').bounding_box()
+    svg = page.locator('#tl-chart svg').bounding_box()
+    heading = page.locator('#view-timeline .tl-h').bounding_box()
+    assert chart['height'] >= svg['height']
+    assert heading['y'] >= svg['y'] + svg['height']
+
+    def no_overlap(boxes):
+        boxes = sorted(boxes, key=lambda b: b['x'])
+        for a, b in zip(boxes, boxes[1:]):
+            same_row = abs(a['y'] - b['y']) < a['height']
+            assert not (same_row and a['x'] + a['width'] > b['x']), (a, b)
+
+    labels = page.locator('#tl-chart .tl-marker-label')
+    assert 2 <= labels.count() < 18
+    no_overlap([labels.nth(i).bounding_box() for i in range(labels.count())])
+    thresh = page.locator('#tl-chart .tl-thresh-label')
+    expect(thresh).to_have_count(2)
+    no_overlap([thresh.nth(i).bounding_box() for i in range(2)])
+    assert page.problems == []
+
+
 def test_strong_signal_sparkline(page, station):
     seed_timeline(hours=1)
     page.reload()

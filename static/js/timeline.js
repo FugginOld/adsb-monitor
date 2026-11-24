@@ -90,6 +90,11 @@ function niceTicks(min, max) {
   return out;
 }
 
+// Room a gain-step label ("15→14", 10 px font) and a threshold label
+// ("raise gain < 0.5 %") need so neighbours don't overlap.
+const TL_MARKER_LABEL_GAP = 34;
+const TL_THRESH_LABEL_W = 110;
+
 // Geometry shared by the chart and its crosshair.
 function tlGeom(width) {
   const left = 52, right = 14, panelH = 64, gap = 26, top = 22, lane = 18;
@@ -127,11 +132,17 @@ function timelineSvg(rows, width) {
       svg += `<text class="tl-axis" x="${g.left - 6}" y="${y(t) + 3}" text-anchor="end">${esc(p.step ? String(t) : (Math.abs(t) >= 1000 ? (t / 1000) + 'k' : String(t)))}</text>`;
     });
     if (p.thresh && TL_THRESH) {
+      // Both labels sit at the right end; when the two lines are close (a 5 % and a
+      // 0.5 % line on a 0–100 scale) the second label moves left of the first.
+      let labelEnd = g.left + g.plotW - 4, prevY = null;
       [['high', 'lower gain >'], ['low', 'raise gain <']].forEach(([k, lbl]) => {
         const v = TL_THRESH[k];
         if (v == null || v < lo || v > hi) return;
+        const text = `${lbl} ${v} %`;
+        if (prevY != null && Math.abs(y(v) - prevY) < 12) labelEnd -= TL_THRESH_LABEL_W;
+        prevY = y(v);
         svg += `<line class="tl-thresh" x1="${g.left}" x2="${g.left + g.plotW}" y1="${y(v)}" y2="${y(v)}"/>`;
-        svg += `<text class="tl-axis tl-thresh-label" x="${g.left + g.plotW - 4}" y="${y(v) - 3}" text-anchor="end">${esc(lbl)} ${esc(String(v))} %</text>`;
+        svg += `<text class="tl-axis tl-thresh-label" x="${labelEnd}" y="${y(v) - 3}" text-anchor="end">${esc(text)}</text>`;
       });
     }
     // the line, broken where samples are missing
@@ -150,11 +161,18 @@ function timelineSvg(rows, width) {
 
   // gain steps through every panel
   const panelsBottom = g.top + TL_PANELS.length * (g.panelH + g.gap) - g.gap;
-  (TL_DATA.changes || []).filter(c => c.kind === 'gain' && c.ts >= start).forEach(c => {
-    const cx = x(c.ts);
-    svg += `<line class="tl-marker${c.level === 'warn' ? ' warn' : ''}" x1="${cx}" x2="${cx}" y1="${g.top - 4}" y2="${panelsBottom}"/>`;
-    svg += `<text class="tl-marker-label" x="${cx + 3}" y="${g.top + 9}">${esc(String(c.old))}→${esc(String(c.new))}</text>`;
-  });
+  // Every step gets its line; a label is drawn only where it clears the previous
+  // one, so a burst of auto-tune steps doesn't print on top of itself (the
+  // crosshair tooltip and the list below still give every step).
+  let lastLabelX = -Infinity;
+  (TL_DATA.changes || []).filter(c => c.kind === 'gain' && c.ts >= start)
+    .sort((a, b) => a.ts - b.ts).forEach(c => {
+      const cx = x(c.ts), step = `${c.old}→${c.new}`;
+      svg += `<line class="tl-marker${c.level === 'warn' ? ' warn' : ''}" x1="${cx}" x2="${cx}" y1="${g.top - 4}" y2="${panelsBottom}"/>`;
+      if (cx - lastLabelX < TL_MARKER_LABEL_GAP) return;
+      lastLabelX = cx;
+      svg += `<text class="tl-marker-label" x="${cx + 3}" y="${g.top + 9}">${esc(step)}</text>`;
+    });
 
   // events lane: restarts, config, updates, service and data-flow changes
   svg += `<text class="tl-title" x="${g.left}" y="${g.lanesTop - 2}">Other changes</text>`;
