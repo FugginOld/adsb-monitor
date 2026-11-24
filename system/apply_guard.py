@@ -221,18 +221,22 @@ def list_backups() -> list[dict[str, Any]]:
     return out
 
 
-def revert(path: str) -> dict[str, Any]:
-    """Restore `path` from its backup; the replaced version becomes the backup."""
-    item = next((i for i in managed_configs() if i['path'] == path), None)
+def revert(requested: str) -> dict[str, Any]:
+    """Restore a managed config file from its backup; the replaced version becomes
+    the backup. Returns {'ok': False, 'error': ...} when it can't.
+
+    `requested` only picks an entry of managed_configs(); every file operation uses
+    that entry's own path, so nothing from the request reaches the filesystem."""
+    item = next((i for i in managed_configs() if i['path'] == requested), None)
     if item is None:
-        raise ValueError('not a config file the monitor manages')
-    bak_path = os.path.realpath(path) + BACKUP_SUFFIX
-    bak = app.HOST.read_text(bak_path)
+        return {'ok': False, 'error': 'not a config file the monitor manages'}
+    path: str = item['path']
+    bak = app.HOST.read_text(os.path.realpath(path) + BACKUP_SUFFIX)
     if bak is None:
-        raise ValueError('no backup for this file')
+        return {'ok': False, 'error': 'no backup for this file'}
     prev = snapshot([path])
     if prev[path] == bak:
-        raise ValueError('the backup is the same as the current file')
+        return {'ok': False, 'error': 'the backup is the same as the current file'}
     app.HOST.write_text(path, bak, backup=True)
     if path.startswith('/etc/systemd/'):
         app.HOST.elevated('systemctl', 'daemon-reload')

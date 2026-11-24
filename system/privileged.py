@@ -100,7 +100,10 @@ def _in_data_dir(path: str) -> bool:
 
 
 def _resolve(path: str) -> tuple[str, str]:
-    """(managed path, kind) for `path` or its .adsb-monitor.bak; Refused otherwise."""
+    """(path to act on, kind) for a managed file or its .adsb-monitor.bak; Refused otherwise.
+
+    The path returned comes from writable_paths(), never from the caller, so the
+    verbs below only ever touch a file on the allow-list."""
     from system.init_adapter import BACKUP_SUFFIX
     if not path or '\0' in path:
         raise Refused('bad path')
@@ -108,8 +111,10 @@ def _resolve(path: str) -> tuple[str, str]:
     real = os.path.realpath(path)
     for managed, kind in kinds.items():
         target = os.path.realpath(managed)
-        if real == target or real == target + BACKUP_SUFFIX:
+        if real == target:
             return managed, kind
+        if real == target + BACKUP_SUFFIX:
+            return target + BACKUP_SUFFIX, kind
     raise Refused(f'not a file adsb-monitor manages: {path}')
 
 
@@ -199,17 +204,17 @@ def _write(host: Any, args: list[str], stdin: bytes) -> Result:
     paths = [a for a in args if a != '--backup']
     if len(paths) != 1:
         raise Refused('write: one path')
-    _managed, kind = _resolve(paths[0])
+    path, kind = _resolve(paths[0])
     validate_content(kind, stdin)
-    host.write_raw(paths[0], stdin, backup=backup)
+    host.write_raw(path, stdin, backup=backup)
     return Result(0, '', '')
 
 
 def _rm(host: Any, args: list[str]) -> Result:
     if len(args) != 1:
         raise Refused('rm: one path')
-    _resolve(args[0])
-    return host.run(['rm', '-f', args[0]])
+    path, _kind = _resolve(args[0])
+    return host.run(['rm', '-f', path])
 
 
 def _mkdir(host: Any, args: list[str]) -> Result:

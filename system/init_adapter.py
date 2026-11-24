@@ -39,6 +39,9 @@ class Result:
         return self.code == 0
 
 BACKUP_SUFFIX = '.adsb-monitor.bak'
+# What a refused privileged request reports; the reason itself is only logged,
+# since callers may pass `err` on to a client.
+REFUSED_MSG = 'refused by the privileged gateway (see the monitor log)'
 
 def _atomic_write(target: str, data: bytes, like: os.stat_result | None) -> None:
     """Write `data` to `target` via a same-directory temp file + fsync + rename."""
@@ -129,11 +132,16 @@ class LinuxHost:
             try:
                 return privileged.dispatch(self, verb, list(args), stdin)
             except privileged.Refused as e:
+                # the reason goes to the log only; callers may show err to a client
                 logger.warning('refused privileged request %s: %s', verb, e)
-                return Result(77, '', f'refused: {e}')
+                return Result(77, '', REFUSED_MSG)
         try:
             r = subprocess.run([*self.helper_argv, verb, *args], input=stdin, capture_output=True,
                                timeout=timeout)
+            if r.returncode == 77:      # refused: same as the in-process path above
+                logger.warning('refused privileged request %s: %s', verb,
+                               r.stderr.decode('utf-8', 'replace').strip())
+                return Result(77, '', REFUSED_MSG)
             return Result(r.returncode, r.stdout.decode('utf-8', 'replace'),
                           r.stderr.decode('utf-8', 'replace'))
         except Exception:
