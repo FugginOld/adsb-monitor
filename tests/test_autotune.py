@@ -66,7 +66,7 @@ def test_strong_pct():
     (49.0, 1, 0),      # clamps at min
 ])
 def test_decide(pct, gain, expected):
-    new, _ = autotune.decide(pct, 10_000, gain, autotune.DEFAULTS)
+    new, _ = autotune.decide(pct, 100_000, gain, autotune.DEFAULTS)   # busy: above min_messages
     assert new == expected
 
 
@@ -377,3 +377,86 @@ def test_state_file_not_rewritten_when_nothing_changed(fake_host):
         clock.t += 30
         autotune.autotune_step(clock)
     assert writes() == before
+
+
+# ── hunting guards: traffic minimum and reversal hold ───────────────────────
+def gains_set():
+    """Gains auto-tune set, oldest first."""
+    return [c['new'] for c in reversed(get_gain_changes(limit=50))]
+
+
+@pytest.mark.parametrize('last_dir, since_min, new, gain, pct, held', [
+    (+1, 30, 13, 14, 5.1, True),     # raised 28 min ago, now wants down: held
+    (-1, 60, 14, 13, 0.4, True),     # lowered an hour ago, now wants up: held
+    (+1, 181, 13, 14, 5.1, False),   # hold expired
+    (+1, 30, 15, 14, 0.1, False),    # same direction: not a reversal
+    (0, 1, 13, 14, 9.0, False),      # no earlier change
+    (+1, 30, 11, 14, 25.0, False),   # severe clipping (>= 4x 5 %) always gets through
+])
+def test_reversal_held(last_dir, since_min, new, gain, pct, held):
+    assert autotune.reversal_held(last_dir, since_min * 60, new, gain, pct, autotune.DEFAULTS) is held
+
+
+def test_saved_legacy_min_messages_reads_as_new_default(fake_host):
+    """The dashboard never offered min_messages, so a saved 3000 is the old default."""
+    fake_host.files[appmod.AUTOTUNE_FILE] = json.dumps({'enabled': True, 'min_messages': 3000})
+    assert autotune.load_config()['min_messages'] == autotune.DEFAULTS['min_messages'] == 40000
+    fake_host.files[appmod.AUTOTUNE_FILE] = json.dumps({'enabled': True, 'min_messages': 5000})
+    assert autotune.load_config()['min_messages'] == 5000          # a deliberate value is kept
+
+
+def test_default_traffic_minimum_skips_a_handful_of_aircraft():
+    # ~6 aircraft for 15 min at ~137 DF17/min each: one close one makes 30 % strong
+    new, reason = autotune.decide(30.0, 6 * 137 * 15, 14, autotune.DEFAULTS)
+    assert new is None and 'not enough traffic' in reason
+    new, _ = autotune.decide(8.0, 60 * 137 * 15, 14, autotune.DEFAULTS)   # 60 aircraft: acts
+    assert new == 13
+
+
+def test_evening_flip_flop_is_held(fake_host):
+    """Last night's pattern: up at 0.4 %, then 5.1 % at the new gain → no step back."""
+    clock = Clock()
+    setup_host(fake_host, cfg={**CFG_ON, 'reverse_hold_min': 180},
+               conf=CONF.replace('GAIN=21', 'GAIN=13'))
+    feed(fake_host, clock, hist(4, 996), 13, 3)                  # 0.4 % → raise 13 → 14
+    assert gains_set() == ['14']
+    feed(fake_host, clock, hist(4, 996), 14, 2)                  # verification
+    feed(fake_host, clock, hist(51, 949), 14, 3)                 # 5.1 % → would lower
+    assert gains_set() == ['14']
+    assert 'holding gain 14' in autotune.snapshot()['last_decision']['reason']
+    clock.t += 181 * 60                                          # hold expires
+    feed(fake_host, clock, hist(51, 949), 14, 3)
+    assert gains_set() == ['14', '13']
+
+
+def test_severe_clipping_is_not_held(fake_host):
+    clock = Clock()
+    setup_host(fake_host, cfg={**CFG_ON, 'reverse_hold_min': 180},
+               conf=CONF.replace('GAIN=21', 'GAIN=13'))
+    feed(fake_host, clock, hist(4, 996), 13, 3)                  # raise 13 → 14
+    feed(fake_host, clock, hist(4, 996), 14, 2)
+    feed(fake_host, clock, hist(300, 700), 14, 3)                # 30 % ≥ 4x: 3 steps down now
+    assert gains_set() == ['14', '11']
+
+
+def test_manual_gain_change_is_not_held(fake_host):
+    """After auto-tune raised the gain, a gain set by hand is judged on its own."""
+    clock = Clock()
+    setup_host(fake_host, cfg={**CFG_ON, 'reverse_hold_min': 180},
+               conf=CONF.replace('GAIN=21', 'GAIN=13'))
+    feed(fake_host, clock, hist(4, 996), 13, 3)                  # raise 13 → 14
+    feed(fake_host, clock, hist(4, 996), 14, 2)
+    fake_host.files[appmod.AIRSPY_DEFAULT] = CONF.replace('GAIN=21', 'GAIN=17')   # by hand
+    feed(fake_host, clock, hist(80, 920), 17, 4)                 # 8 % at 17 → lower now
+    assert gains_set()[-1] == '16'
+
+
+def test_hold_survives_a_monitor_restart(fake_host):
+    clock = Clock()
+    setup_host(fake_host, cfg={**CFG_ON, 'reverse_hold_min': 180},
+               conf=CONF.replace('GAIN=21', 'GAIN=13'))
+    feed(fake_host, clock, hist(4, 996), 13, 3)
+    feed(fake_host, clock, hist(4, 996), 14, 2)
+    autotune._reset_state_for_tests(loaded=False)                # "restart": state from disk
+    feed(fake_host, clock, hist(51, 949), 14, 3)
+    assert gains_set() == ['14']
