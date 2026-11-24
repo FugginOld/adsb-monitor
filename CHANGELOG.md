@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Auto-tune no longer hunts at night. The traffic minimum per decision window
+  (`min_messages`) is now 40,000 DF17s (about 20 aircraft over 15 minutes) instead
+  of 3,000 (about 1–2 aircraft), so a single close aircraft in an empty sky no
+  longer swings the gain. A saved 3000 (the old default; the dashboard never
+  offered this setting) is read as the new default.
+- Auto-tune no longer flips one step up and back down when the two neighbouring
+  gains sit just either side of the dead band: after a change, a step the
+  opposite way is held for `reverse_hold_min` (default 180 minutes). Severe
+  clipping (≥ 4× the limit) is never held, and a gain set by hand is not held.
+
 ## [1.1.3] - 2026-11-23
 
 ### Security

@@ -327,7 +327,7 @@ async function loadAutotune(){
     document.getElementById('autotune-min').value=c.min_gain;
     document.getElementById('autotune-max').value=c.max_gain;
     document.getElementById('autotune-thresholds').textContent=
-      `Lowers gain above ${c.strong_high_pct}% of DF17s at ≥${c.strong_rssi_db} dB, raises it below ${c.strong_low_pct}%. Window ${c.window_min} min, min ${c.min_messages} messages.`;
+      `Lowers gain above ${c.strong_high_pct}% of DF17s at ≥${c.strong_rssi_db} dB, raises it below ${c.strong_low_pct}%. Window ${c.window_min} min, min ${c.min_messages} messages; no reversal within ${c.reverse_hold_min} min of a change.`;
     document.getElementById('autotune-status').textContent='Status: '+d.state.status;
     const ul=document.getElementById('autotune-history');
     ul.replaceChildren(...d.history.map(h=>{const li=document.createElement('li');
