@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-23
+
 ### Fixed
 - Timeline: a gain step near the chart's right edge (e.g. one a few minutes ago)
   had its label cut off ("13-"); the label now goes left of its line when it
