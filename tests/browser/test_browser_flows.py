@@ -126,13 +126,24 @@ def test_labels_from_feeders_ini_are_escaped(page, station):
     assert page.problems == []
 
 
+def set_db_clock(ts):
+    """Make system/db.py (only) stamp rows at `ts`; None restores the real clock.
+
+    Patching `db.time.time` would change time.time for the whole process: the
+    test server would then see the login cookie as issued in the future, drop
+    the session, and the page would fall back to /login mid-test."""
+    import time as real
+    import types
+    from system import db
+    db.time = real if ts is None else types.SimpleNamespace(time=lambda: ts)
+
+
 def seed_timeline(hours=24):
     """24 h of plausible samples with two gain steps and a few other changes."""
     import math
     import time as _t
     from system import db
     now = _t.time()
-    real_time = db.time.time
     try:
         for i in range(int(hours * 3600 / 300)):
             ts = now - hours * 3600 + i * 300
@@ -140,7 +151,7 @@ def seed_timeline(hours=24):
             gain = 15.0 if i < 120 else 13.0 if i < 230 else 14.0
             sig = {'strong_pct': max(0.2, 6.5 - (15 - gain) * 2.2 + day), 'gain': gain,
                    'snr': 12.0, 'noise': 37.0}
-            db.time.time = lambda ts=ts: ts
+            set_db_clock(ts)
             db.record_metrics(int(40 + 80 * day), int(300 + 1500 * day), int(140 + 50 * day), sig)
             if i == 120:
                 db.record_gain_change('15', '13', 'auto-tune: 6.5% strong signals > 5% — lowering gain 15 → 13')
@@ -152,7 +163,7 @@ def seed_timeline(hours=24):
             if i == 260:
                 db.record_dataflow_event('fr24feed', 'stale', 'FR24 link disconnected')
     finally:
-        db.time.time = real_time
+        set_db_clock(None)
 
 
 def test_timeline_view(page, station):
@@ -185,6 +196,78 @@ def test_timeline_view(page, station):
         page.set_viewport_size({'width': 390, 'height': 900})
         page.wait_for_timeout(400)
         page.screenshot(path=f'{shots}/timeline-phone.png', full_page=True)
+    assert page.problems == []
+
+
+def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
+    """A night of auto-tune steps every 15 min fills the change list past the
+    screen; the chart must keep its full height (it used to shrink to 120 px and
+    spill over the list) and neither the step labels nor the two threshold
+    labels may print on top of each other."""
+    import time as _t
+    from system import db
+    seed_timeline()
+    now = _t.time()
+    try:
+        gains = [13, 14, 15, 16, 15, 14, 13, 14, 15, 16, 15, 14, 15, 14, 15, 14, 13]
+        for i, (old, new) in enumerate(zip(gains, gains[1:])):
+            ts = now - 18 * 3600 + i * 900
+            set_db_clock(ts)
+            db.record_gain_change(str(old), str(new), f'auto-tune: lowering/raising gain {old} → {new}')
+            set_db_clock(ts + 30)
+            db.record_change('restart', 'airspy_adsb', 'airspy_adsb restarted', ref=f'busy-{i}')
+    finally:
+        set_db_clock(None)
+    page.click('#btn-timeline')
+    expect(page.locator('#tl-chart .tl-marker')).to_have_count(18)
+    assert page.locator('#tl-changes .tl-change').count() > 30
+
+    chart = page.locator('#tl-chart').bounding_box()
+    svg = page.locator('#tl-chart svg').bounding_box()
+    heading = page.locator('#view-timeline .tl-h').bounding_box()
+    assert chart['height'] >= svg['height']
+    assert heading['y'] >= svg['y'] + svg['height']
+
+    def no_overlap(boxes, gap=3):
+        """Labels on the same row keep at least `gap` px between them."""
+        boxes = sorted(boxes, key=lambda b: b['x'])
+        for a, b in zip(boxes, boxes[1:]):
+            same_row = abs(a['y'] - b['y']) < a['height']
+            assert not (same_row and a['x'] + a['width'] + gap > b['x']), (a, b)
+
+    labels = page.locator('#tl-chart .tl-marker-label')
+    assert 2 <= labels.count() < 18
+    no_overlap([labels.nth(i).bounding_box() for i in range(labels.count())])
+    thresh = page.locator('#tl-chart .tl-thresh-label')
+    expect(thresh).to_have_count(2)
+    no_overlap([thresh.nth(i).bounding_box() for i in range(2)])
+
+    # Phone widths: the same labels, and the time axis, still stay apart and
+    # inside the chart.
+    for w in (390, 320):
+        page.set_viewport_size({'width': w, 'height': 844})
+        for hours in ('24', '6'):
+            page.click(f'[data-click="setTimelineHours"][data-hours="{hours}"]')
+            expect(page.locator('#tl-links')).to_contain_text(f'last {hours} h')
+            # wait for the redraw at this width (resize re-renders after 150 ms)
+            page.wait_for_function("""() => { const b = document.getElementById('tl-chart'),
+                                                    s = b.querySelector('svg');
+                                              return s && +s.getAttribute('width') === b.clientWidth; }""")
+            # one snapshot: the chart re-renders on refresh, so measure in a single call
+            m = page.evaluate("""() => {
+                const box = e => { const r = e.getBoundingClientRect();
+                                   return {x: r.x, y: r.y, width: r.width, height: r.height}; };
+                const svg = document.querySelector('#tl-chart svg'), s = box(svg);
+                const all = sel => [...svg.querySelectorAll(sel)].map(box);
+                return {svg: s, axis: all('text.tl-axis').filter(b => b.y > s.y + s.height - 20),
+                        markers: all('.tl-marker-label'), thresh: all('.tl-thresh-label')};
+            }""")
+            svg, axis = m['svg'], m['axis']
+            assert len(axis) >= 2, (w, hours)
+            no_overlap(axis)
+            assert all(svg['x'] <= b['x'] and b['x'] + b['width'] <= svg['x'] + svg['width'] + 0.5 for b in axis)
+            no_overlap(m['markers'])
+            no_overlap(m['thresh'])
     assert page.problems == []
 
 

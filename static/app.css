@@ -335,9 +335,9 @@ a { color: var(--blue); text-decoration: none; }
 .tl-seg { display: inline-flex; gap: 4px; }
 .tl-controls [aria-pressed="true"] { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
 .tl-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
-.tl-chart { position: relative; background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px; padding: 6px 0; min-height: 120px; }
+.tl-chart { position: relative; background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px; padding: 6px 0; min-height: 120px; flex-shrink: 0; }
 .tl-svg { display: block; max-width: 100%; touch-action: pan-y; }
-.tl-title { font-size: 11px; font-weight: 500; fill: var(--text2); }
+.tl-title { font-size: 11px; font-weight: 500; fill: var(--text2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
 .tl-axis { font-size: 10px; fill: var(--text3); font-variant-numeric: tabular-nums; }
 .tl-empty { font-size: 11px; fill: var(--text3); }
 .tl-grid { stroke: var(--border); stroke-width: 1; }
@@ -346,7 +346,7 @@ a { color: var(--blue); text-decoration: none; }
 .tl-thresh-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
 .tl-marker { stroke: var(--text3); stroke-width: 1; stroke-dasharray: 4 3; }
 .tl-marker.warn { stroke: var(--warn-text); }
-.tl-marker-label { font-size: 10px; fill: var(--text2); }
+.tl-marker-label { font-size: 10px; fill: var(--text2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
 .tl-event { fill: var(--text3); stroke: var(--surface); stroke-width: 2; }
 .tl-event.ok { fill: var(--ok-text); } .tl-event.warn { fill: var(--warn-text); } .tl-event.error { fill: var(--err-text); }
 .tl-cross { stroke: var(--text2); stroke-width: 1; pointer-events: none; }
