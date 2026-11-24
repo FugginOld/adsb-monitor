@@ -5,6 +5,7 @@ Imported by conftest's fake_host fixture and tests that build their own doubles.
 import json
 
 from app import InitAdapter, Result
+from system.init_adapter import REFUSED_MSG
 
 
 class FakeHost:
@@ -66,8 +67,8 @@ class FakeHost:
         self.calls.append(('elevated', verb, args))
         try:
             return privileged.dispatch(self, verb, list(args), stdin)
-        except privileged.Refused as e:
-            return Result(77, '', f'refused: {e}')
+        except privileged.Refused:
+            return Result(77, '', REFUSED_MSG)
     def elevated_argv(self, verb, *args):
         from system import privileged
         return privileged.docker_logs_argv(args[0], int(args[1]))

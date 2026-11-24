@@ -208,6 +208,28 @@ def test_revert_refuses_unmanaged_paths(client, fake_host, path):
     assert not [c for c in fake_host.calls if c[0] == 'write_text']
 
 
+def test_revert_uses_the_managed_entry_path(fake_host, init, no_background_checks, monkeypatch):
+    """The request only selects an entry; reads and writes use the entry's path."""
+    fake_host.files[appmod.READSB_DEFAULT] = 'CURRENT\n'
+    fake_host.files[bak(appmod.READSB_DEFAULT)] = 'PREVIOUS\n'
+    requested = ''.join(list(appmod.READSB_DEFAULT))     # equal, but a separate object
+    assert requested == appmod.READSB_DEFAULT and requested is not appmod.READSB_DEFAULT
+    assert apply_guard.revert(requested)['ok'] is True
+    touched = [c[1] for c in fake_host.calls if c[0] in ('read_text', 'write_text', 'write_bytes')
+               and c[1] == appmod.READSB_DEFAULT]
+    assert touched and all(p is appmod.READSB_DEFAULT for p in touched)
+
+
+def test_revert_refusals_are_fixed_messages(client, fake_host):
+    fake_host.files[appmod.READSB_DEFAULT] = 'SAME\n'
+    fake_host.files[bak(appmod.READSB_DEFAULT)] = 'SAME\n'
+    r = client.post('/api/config/revert', json={'path': appmod.READSB_DEFAULT})
+    assert r.status_code == 400
+    assert r.get_json() == {'ok': False, 'error': 'the backup is the same as the current file'}
+    r = client.post('/api/config/revert', json={'path': '/etc/<script>'})
+    assert r.get_json() == {'ok': False, 'error': 'not a config file the monitor manages'}
+
+
 def test_revert_without_backup(client, fake_host):
     fake_host.files[appmod.READSB_DEFAULT] = 'CURRENT\n'
     r = client.post('/api/config/revert', json={'path': appmod.READSB_DEFAULT})

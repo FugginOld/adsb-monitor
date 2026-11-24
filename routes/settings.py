@@ -61,9 +61,8 @@ def revert_config() -> Any:
     if not isinstance(d, dict) or not isinstance(d.get('path'), str):
         return jsonify({'ok': False, 'error': 'expected {"path": ...}'}), 400
     try:
-        return jsonify(apply_guard.revert(d['path']))
-    except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+        out = apply_guard.revert(d['path'])
+        return jsonify(out), (200 if out['ok'] else 400)
     except Exception:
         logger.exception("Failed to revert a config file")
         return jsonify({'ok': False, 'error': 'An internal error has occurred.'})

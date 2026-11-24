@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security
+- Config revert (`POST /api/config/revert`) uses the request only to pick an entry
+  of the managed-config list; every read and write uses that entry's own path.
+- The privileged gateway's `write` and `rm` act on the path from its allow-list,
+  not on the caller's spelling of it.
+- Refused privileged requests no longer put the refusal reason (which can echo
+  the request) into responses; it goes to the monitor log. Same for config-restore
+  skips and revert errors, which are now fixed messages instead of exception text.
+  Clears the open CodeQL path-injection, command-line-injection and
+  stack-trace-exposure alerts.
+
 ## [1.1.2] - 2026-11-23
 
 ### Fixed
