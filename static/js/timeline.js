@@ -90,10 +90,18 @@ function niceTicks(min, max) {
   return out;
 }
 
-// Room a gain-step label ("15→14", 10 px font) and a threshold label
-// ("raise gain < 0.5 %") need so neighbours don't overlap.
-const TL_MARKER_LABEL_GAP = 34;
-const TL_THRESH_LABEL_W = 110;
+// Width of a 10 px chart label in the page's font, so labels that would collide
+// can be moved or skipped. Falls back to an estimate where canvas isn't available.
+let TL_MEASURE = null;
+function tlTextW(text) {
+  if (TL_MEASURE === null) {
+    const c = document.createElement('canvas').getContext('2d');
+    if (c) c.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    TL_MEASURE = c || false;
+  }
+  return TL_MEASURE ? TL_MEASURE.measureText(text).width : text.length * 6;
+}
+const TL_LABEL_PAD = 8;   // space between neighbouring labels (incl. the 3 px halo some have)
 
 // Geometry shared by the chart and its crosshair.
 function tlGeom(width) {
@@ -106,6 +114,8 @@ function tlGeom(width) {
 
 function timelineSvg(rows, width) {
   const g = tlGeom(width);
+  // Panel titles, gain-step and threshold labels go on top of the lines and markers.
+  let overlay = '';
   const end = TL_DATA.metrics.length ? Math.max(Date.now() / 1000, rows[rows.length - 1].ts) : Date.now() / 1000;
   const start = end - TL_DATA.hours * 3600;
   const x = ts => g.left + (ts - start) / (end - start) * g.plotW;
@@ -115,7 +125,7 @@ function timelineSvg(rows, width) {
   TL_PANELS.forEach((p, i) => {
     const y0 = g.top + i * (g.panelH + g.gap);
     const vals = rows.map(r => r[p.key]).filter(v => v != null);
-    svg += `<text class="tl-title" x="${g.left}" y="${y0 - 7}">${esc(p.title)}</text>`;
+    overlay += `<text class="tl-title" x="${g.left}" y="${y0 - 7}">${esc(p.title)}</text>`;
     if (!vals.length) {
       svg += `<text class="tl-empty" x="${g.left + 8}" y="${y0 + g.panelH / 2}">no data in this window</text>`;
       return;
@@ -134,15 +144,16 @@ function timelineSvg(rows, width) {
     if (p.thresh && TL_THRESH) {
       // Both labels sit at the right end; when the two lines are close (a 5 % and a
       // 0.5 % line on a 0–100 scale) the second label moves left of the first.
-      let labelEnd = g.left + g.plotW - 4, prevY = null;
+      let labelEnd = g.left + g.plotW - 4, prevY = null, prevStart = labelEnd;
       [['high', 'lower gain >'], ['low', 'raise gain <']].forEach(([k, lbl]) => {
         const v = TL_THRESH[k];
         if (v == null || v < lo || v > hi) return;
         const text = `${lbl} ${v} %`;
-        if (prevY != null && Math.abs(y(v) - prevY) < 12) labelEnd -= TL_THRESH_LABEL_W;
-        prevY = y(v);
+        if (prevY != null && Math.abs(y(v) - prevY) < 12) labelEnd = prevStart - TL_LABEL_PAD;
+        else labelEnd = g.left + g.plotW - 4;
+        prevY = y(v); prevStart = labelEnd - tlTextW(text);
         svg += `<line class="tl-thresh" x1="${g.left}" x2="${g.left + g.plotW}" y1="${y(v)}" y2="${y(v)}"/>`;
-        svg += `<text class="tl-axis tl-thresh-label" x="${labelEnd}" y="${y(v) - 3}" text-anchor="end">${esc(text)}</text>`;
+        overlay += `<text class="tl-axis tl-thresh-label" x="${labelEnd}" y="${y(v) - 3}" text-anchor="end">${esc(text)}</text>`;
       });
     }
     // the line, broken where samples are missing
@@ -164,15 +175,17 @@ function timelineSvg(rows, width) {
   // Every step gets its line; a label is drawn only where it clears the previous
   // one, so a burst of auto-tune steps doesn't print on top of itself (the
   // crosshair tooltip and the list below still give every step).
-  let lastLabelX = -Infinity;
+  let labelRight = -Infinity;
   (TL_DATA.changes || []).filter(c => c.kind === 'gain' && c.ts >= start)
     .sort((a, b) => a.ts - b.ts).forEach(c => {
       const cx = x(c.ts), step = `${c.old}→${c.new}`;
       svg += `<line class="tl-marker${c.level === 'warn' ? ' warn' : ''}" x1="${cx}" x2="${cx}" y1="${g.top - 4}" y2="${panelsBottom}"/>`;
-      if (cx - lastLabelX < TL_MARKER_LABEL_GAP) return;
-      lastLabelX = cx;
-      svg += `<text class="tl-marker-label" x="${cx + 3}" y="${g.top + 9}">${esc(step)}</text>`;
+      if (cx + 3 < labelRight + TL_LABEL_PAD) return;
+      labelRight = cx + 3 + tlTextW(step);
+      overlay += `<text class="tl-marker-label" x="${cx + 3}" y="${g.top + 9}">${esc(step)}</text>`;
     });
+
+  svg += overlay;
 
   // events lane: restarts, config, updates, service and data-flow changes
   svg += `<text class="tl-title" x="${g.left}" y="${g.lanesTop - 2}">Other changes</text>`;
@@ -187,9 +200,15 @@ function timelineSvg(rows, width) {
   const stepH = [1, 2, 3, 4, 6, 8, 12].find(h => g.plotW / (TL_DATA.hours / h) >= 70) || 12;
   const first = Math.ceil(start / (stepH * 3600)) * stepH * 3600;
   const axisY = g.lanesTop + g.lane + 18;
+  // A label centred on its tick; near an edge it's shifted inside the chart, and
+  // one that would then run into its neighbour is left out.
+  let axisRight = -Infinity;
   for (let t = first; t <= end; t += stepH * 3600) {
-    const tx = x(t), anchor = tx > g.left + g.plotW - 30 ? 'end' : tx < g.left + 30 ? 'start' : 'middle';
-    svg += `<text class="tl-axis" x="${tx}" y="${axisY}" text-anchor="${anchor}">${esc(tlTime(t))}</text>`;
+    const text = tlTime(t), w = tlTextW(text);
+    const x0 = Math.min(Math.max(x(t) - w / 2, 0), g.width - w);
+    if (x0 < axisRight + TL_LABEL_PAD) continue;
+    axisRight = x0 + w;
+    svg += `<text class="tl-axis" x="${x0}" y="${axisY}">${esc(text)}</text>`;
   }
   svg += `<line class="tl-cross hidden" id="tl-cross" x1="0" x2="0" y1="${g.top - 4}" y2="${g.lanesTop + g.lane}"/>`;
   svg += `<rect class="tl-hit" x="${g.left}" y="0" width="${g.plotW}" height="${g.height}"/>`;

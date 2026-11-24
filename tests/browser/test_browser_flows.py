@@ -217,11 +217,12 @@ def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
     assert chart['height'] >= svg['height']
     assert heading['y'] >= svg['y'] + svg['height']
 
-    def no_overlap(boxes):
+    def no_overlap(boxes, gap=3):
+        """Labels on the same row keep at least `gap` px between them."""
         boxes = sorted(boxes, key=lambda b: b['x'])
         for a, b in zip(boxes, boxes[1:]):
             same_row = abs(a['y'] - b['y']) < a['height']
-            assert not (same_row and a['x'] + a['width'] > b['x']), (a, b)
+            assert not (same_row and a['x'] + a['width'] + gap > b['x']), (a, b)
 
     labels = page.locator('#tl-chart .tl-marker-label')
     assert 2 <= labels.count() < 18
@@ -229,6 +230,33 @@ def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
     thresh = page.locator('#tl-chart .tl-thresh-label')
     expect(thresh).to_have_count(2)
     no_overlap([thresh.nth(i).bounding_box() for i in range(2)])
+
+    # Phone widths: the same labels, and the time axis, still stay apart and
+    # inside the chart.
+    for w in (390, 320):
+        page.set_viewport_size({'width': w, 'height': 844})
+        for hours in ('24', '6'):
+            page.click(f'[data-click="setTimelineHours"][data-hours="{hours}"]')
+            expect(page.locator('#tl-links')).to_contain_text(f'last {hours} h')
+            # wait for the redraw at this width (resize re-renders after 150 ms)
+            page.wait_for_function("""() => { const b = document.getElementById('tl-chart'),
+                                                    s = b.querySelector('svg');
+                                              return s && +s.getAttribute('width') === b.clientWidth; }""")
+            # one snapshot: the chart re-renders on refresh, so measure in a single call
+            m = page.evaluate("""() => {
+                const box = e => { const r = e.getBoundingClientRect();
+                                   return {x: r.x, y: r.y, width: r.width, height: r.height}; };
+                const svg = document.querySelector('#tl-chart svg'), s = box(svg);
+                const all = sel => [...svg.querySelectorAll(sel)].map(box);
+                return {svg: s, axis: all('text.tl-axis').filter(b => b.y > s.y + s.height - 20),
+                        markers: all('.tl-marker-label'), thresh: all('.tl-thresh-label')};
+            }""")
+            svg, axis = m['svg'], m['axis']
+            assert len(axis) >= 2, (w, hours)
+            no_overlap(axis)
+            assert all(svg['x'] <= b['x'] and b['x'] + b['width'] <= svg['x'] + svg['width'] + 0.5 for b in axis)
+            no_overlap(m['markers'])
+            no_overlap(m['thresh'])
     assert page.problems == []
 
 
