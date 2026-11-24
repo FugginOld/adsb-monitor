@@ -335,7 +335,7 @@ a { color: var(--blue); text-decoration: none; }
 .tl-seg { display: inline-flex; gap: 4px; }
 .tl-controls [aria-pressed="true"] { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
 .tl-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
-.tl-chart { position: relative; background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px; padding: 6px 0; min-height: 120px; }
+.tl-chart { position: relative; background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px; padding: 6px 0; min-height: 120px; flex-shrink: 0; }
 .tl-svg { display: block; max-width: 100%; touch-action: pan-y; }
 .tl-title { font-size: 11px; font-weight: 500; fill: var(--text2); }
 .tl-axis { font-size: 10px; fill: var(--text3); font-variant-numeric: tabular-nums; }
