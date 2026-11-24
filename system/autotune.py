@@ -15,9 +15,16 @@ Loop, one decision per window:
   1. Collect `window_min` distinct stats.json samples (deduped on `now`) at the
      current gain, ignoring the `settle_s` after any change.
   2. Sum the histograms; skip quiet windows with fewer than `min_messages` DF17s.
+     At ~140 DF17/min per aircraft, the default 40,000 per 15-minute window is
+     about 20 aircraft on average: with only a handful overhead (small hours),
+     one close aircraft swings strong % from 0 to 30 %+ and isn't a signal.
   3. strong % > `strong_high_pct` → lower gain (3 steps if >= 4x over, else 1);
      strong % < `strong_low_pct` → raise gain 1 step. Anything in between is the
      dead band: leave it alone. Bounded by `min_gain`..`max_gain`.
+     Reversal hold: a step opposite to the last auto-tune change is held for
+     `reverse_hold_min` after it, so a gain whose one-step neighbours sit just
+     either side of the dead band doesn't flip back and forth every window.
+     Severe clipping (>= 4x over, the 3-step case) is never held.
   4. Write the new gain, restart airspy_adsb, record it in history.db, then
      **verify**: within `VERIFY_TIMEOUT_S` the unit must be active and stats.json
      must report the new gain. If not, the previous file is restored, the decoder
@@ -67,11 +74,16 @@ DEFAULTS: dict[str, Any] = {
     'strong_high_pct': 5.0,   # above this → lower gain
     'strong_low_pct':  0.5,   # below this → raise gain
     'window_min':      15,    # stats samples (≈ minutes) per decision
-    'min_messages':    3000,  # DF17s needed in a window to decide
+    'min_messages':    40000, # DF17s needed in a window to decide (~20 aircraft over 15 min)
     'settle_s':        120,   # ignore stats this long after a change
+    'reverse_hold_min': 180,  # no step back the other way for this long after a change
 }
+# The pre-1.1.4 default. The dashboard never offered min_messages, so a saved
+# 3000 is that default, not a choice: it is read as the current default.
+LEGACY_MIN_MESSAGES = 3000
 _INT_LIMITS = {'min_gain': (0, 21), 'max_gain': (0, 21), 'strong_rssi_db': (1, 120),
-               'window_min': (3, 120), 'min_messages': (0, 10_000_000), 'settle_s': (0, 3600)}
+               'window_min': (3, 120), 'min_messages': (0, 10_000_000), 'settle_s': (0, 3600),
+               'reverse_hold_min': (0, 1440)}
 _PCT_KEYS = ('strong_high_pct', 'strong_low_pct')
 
 
@@ -121,6 +133,8 @@ def load_config() -> dict[str, Any]:
     raw = app.HOST.read_json(app.AUTOTUNE_FILE)
     if not isinstance(raw, dict):
         return dict(DEFAULTS)
+    if raw.get('min_messages') == LEGACY_MIN_MESSAGES:
+        raw = {**raw, 'min_messages': DEFAULTS['min_messages']}
     try:
         return validate_config(raw)
     except ValueError:
@@ -164,6 +178,16 @@ def decide(pct: float, total: int, gain: int, cfg: dict[str, Any]) -> tuple[int 
     return None, (f'{pct:.1f}% strong signals is within '
                   f'{cfg["strong_low_pct"]:g}–{cfg["strong_high_pct"]:g}% — gain {gain} is fine')
 
+def reversal_held(last_dir: int, since_s: float, new: int, gain: int, pct: float,
+                  cfg: dict[str, Any]) -> bool:
+    """True when stepping `gain` → `new` should wait: it reverses the last change
+    (direction `last_dir`, `since_s` ago) within `reverse_hold_min`, and the
+    clipping isn't severe (>= 4x strong_high_pct always gets through)."""
+    step = 1 if new > gain else -1
+    if not last_dir or step != -last_dir or since_s >= cfg['reverse_hold_min'] * 60:
+        return False
+    return not (step < 0 and pct >= 4 * cfg['strong_high_pct'])
+
 def sum_buckets(samples: list[list[int]]) -> list[int]:
     width = max((len(b) for b in samples), default=0)
     out = [0] * width
@@ -182,6 +206,8 @@ class _State:
         self.samples: list[tuple[float, list[int]]] = []
         self.window_gain: str | None = None
         self.last_change_ts = 0.0
+        self.last_change_dir = 0      # +1 raised, -1 lowered, 0 none (for the reversal hold)
+        self.last_change_gain: str | None = None   # the gain that change set
         self.pending: dict[str, Any] | None = None   # change awaiting verification
         self.status = 'disabled'
         self.last_decision: dict[str, Any] | None = None
@@ -193,6 +219,7 @@ class _State:
     def to_dict(self) -> dict[str, Any]:
         return {'version': 1, 'samples': [[ts, b] for ts, b in self.samples],
                 'window_gain': self.window_gain, 'last_change_ts': self.last_change_ts,
+                'last_change_dir': self.last_change_dir, 'last_change_gain': self.last_change_gain,
                 'pending': self.pending, 'last_decision': self.last_decision}
 
     @classmethod
@@ -211,6 +238,10 @@ class _State:
             st.samples = []
         lc = d.get('last_change_ts')
         st.last_change_ts = float(lc) if isinstance(lc, (int, float)) else 0.0
+        ld_dir = d.get('last_change_dir')
+        st.last_change_dir = ld_dir if ld_dir in (-1, 0, 1) and not isinstance(ld_dir, bool) else 0
+        lg = d.get('last_change_gain')
+        st.last_change_gain = lg if isinstance(lg, str) and lg in AIRSPY_GAINS else None
         p = d.get('pending')
         if isinstance(p, dict) and all(isinstance(p.get(k), t if t is not float else (int, float))
                                        for k, t in _PENDING_KEYS.items()):
@@ -352,11 +383,25 @@ def _verify(st: _State, now: float) -> None:
         return
     st.status = f'verifying gain {p["new"]} ({int(elapsed)} s)'
 
+def _reversal_hold(st: _State, new: int, gain: int, pct: float, reason: str,
+                   cfg: dict[str, Any], now: float) -> tuple[int | None, str]:
+    """decide()'s result, or (None, why) while the reversal hold applies."""
+    since = now - st.last_change_ts
+    if str(gain) != st.last_change_gain:      # gain set by hand since: not ours to hold
+        return new, reason
+    if not reversal_held(st.last_change_dir, since, new, gain, pct, cfg):
+        return new, reason
+    went = 'raised' if st.last_change_dir > 0 else 'lowered'
+    return None, (f'{reason.split(" — ")[0]}, but auto-tune {went} the gain {int(since // 60)} min ago'
+                  f' — holding gain {gain} until {cfg["reverse_hold_min"]} min have passed')
+
 def _apply(st: _State, text: str, old: str, new: int, reason: str, now: float) -> None:
     new_text = set_airspy_gain(text, str(new))
     app.HOST.write_text(app.AIRSPY_DEFAULT, new_text, backup=True)
     st.pending = {'ts': now, 'old': old, 'new': str(new), 'prev_text': text, 'new_text': new_text}
     st.last_change_ts = now
+    st.last_change_dir = 1 if new > int(old) else -1
+    st.last_change_gain = str(new)
     st.reset_window(str(new))
     record_gain_change(old, str(new), reason)
     logger.info('auto-tune: %s', reason)
@@ -427,6 +472,8 @@ def _step(now: float) -> None:
         return
     pct, total = strong_pct(sum_buckets([b for _, b in st.samples]), cfg['strong_rssi_db'])
     new, reason = decide(pct, total, int(gain), cfg)
+    if new is not None:
+        new, reason = _reversal_hold(st, new, int(gain), pct, reason, cfg, now)
     st.last_decision = {'ts': now, 'gain': gain, 'strong_pct': round(pct, 2),
                         'messages': total, 'new_gain': new, 'reason': reason}
     if new is None:
