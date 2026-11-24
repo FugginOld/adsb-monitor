@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-11-23
+
 ### Fixed
 - Auto-tune no longer hunts at night. The traffic minimum per decision window
   (`min_messages`) is now 40,000 DF17s (about 20 aircraft over 15 minutes) instead
