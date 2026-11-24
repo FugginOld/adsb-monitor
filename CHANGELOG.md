@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-23
+
 ### Security
 - Config revert (`POST /api/config/revert`) uses the request only to pick an entry
   of the managed-config list; every read and write uses that entry's own path.
