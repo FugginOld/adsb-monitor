@@ -216,10 +216,13 @@ def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
             db.record_gain_change(str(old), str(new), f'auto-tune: lowering/raising gain {old} → {new}')
             set_db_clock(ts + 30)
             db.record_change('restart', 'airspy_adsb', 'airspy_adsb restarted', ref=f'busy-{i}')
+        # and one step a minute ago, at the chart's right edge
+        set_db_clock(now - 60)
+        db.record_gain_change('13', '14', 'auto-tune: raising gain 13 → 14')
     finally:
         set_db_clock(None)
     page.click('#btn-timeline')
-    expect(page.locator('#tl-chart .tl-marker')).to_have_count(18)
+    expect(page.locator('#tl-chart .tl-marker')).to_have_count(19)
     assert page.locator('#tl-changes .tl-change').count() > 30
 
     chart = page.locator('#tl-chart').bounding_box()
@@ -236,8 +239,14 @@ def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
             assert not (same_row and a['x'] + a['width'] + gap > b['x']), (a, b)
 
     labels = page.locator('#tl-chart .tl-marker-label')
-    assert 2 <= labels.count() < 18
+    assert 2 <= labels.count() < 19
     no_overlap([labels.nth(i).bounding_box() for i in range(labels.count())])
+    def inside_chart(b, s):
+        return s['x'] <= b['x'] and b['x'] + b['width'] <= s['x'] + s['width'] + 0.5
+
+    svg_box = page.locator('#tl-chart svg').bounding_box()
+    assert all(inside_chart(labels.nth(i).bounding_box(), svg_box) for i in range(labels.count()))
+    assert labels.last.text_content() == '13→14'      # the edge step keeps its label
     thresh = page.locator('#tl-chart .tl-thresh-label')
     expect(thresh).to_have_count(2)
     no_overlap([thresh.nth(i).bounding_box() for i in range(2)])
@@ -267,6 +276,7 @@ def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
             no_overlap(axis)
             assert all(svg['x'] <= b['x'] and b['x'] + b['width'] <= svg['x'] + svg['width'] + 0.5 for b in axis)
             no_overlap(m['markers'])
+            assert all(inside_chart(b, svg) for b in m['markers']), (w, hours)
             no_overlap(m['thresh'])
     assert page.problems == []
 
