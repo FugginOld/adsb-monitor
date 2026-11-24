@@ -9,7 +9,7 @@ import pytest
 import app as appmod
 from app import Result
 from system import privileged
-from system.init_adapter import BACKUP_SUFFIX, LinuxHost
+from system.init_adapter import BACKUP_SUFFIX, REFUSED_MSG, LinuxHost
 from system.sdr_settings import BIASTEE_1090_CONF
 
 Refused = privileged.Refused
@@ -239,6 +239,38 @@ def test_root_host_validates_in_process():
     host.helper_argv = None
     r = host.elevated('write', '/etc/passwd', stdin=b'x')
     assert r.code == 77 and 'refused' in r.err
+
+
+def test_refusal_reason_is_logged_not_returned(caplog):
+    """err can reach a client (service output, check messages), so it never carries
+    the reason, which may echo the request; the log does."""
+    host = LinuxHost()
+    host.helper_argv = None
+    r = host.elevated('write', '/etc/secret-name', stdin=b'x')
+    assert r.code == 77 and r.err == REFUSED_MSG and 'secret-name' not in r.err
+    assert 'secret-name' in caplog.text
+
+
+def test_helper_refusal_reason_is_logged_not_returned(monkeypatch, caplog):
+    class R:
+        returncode, stdout, stderr = 77, b'', b'refused: not a file adsb-monitor manages: /etc/secret-name\n'
+    host = LinuxHost()
+    host.helper_argv = ['sudo', '-n', 'helper']
+    monkeypatch.setattr('system.init_adapter.subprocess.run', lambda *a, **k: R())
+    r = host.elevated('write', '/etc/secret-name', stdin=b'x')
+    assert r.code == 77 and r.err == REFUSED_MSG
+    assert 'secret-name' in caplog.text
+
+
+def test_write_and_rm_act_on_the_allow_listed_path(fake_host):
+    """The gateway resolves the request to its own entry and uses that, so a
+    different spelling of a managed path never reaches write_raw or rm."""
+    spelled = os.path.dirname(appmod.READSB_DEFAULT) + '/./' + os.path.basename(appmod.READSB_DEFAULT)
+    go(fake_host, 'write', spelled, stdin=b'RECEIVER_OPTIONS=""\n')
+    assert fake_host.files[appmod.READSB_DEFAULT] == 'RECEIVER_OPTIONS=""\n'
+    assert spelled not in fake_host.files
+    go(fake_host, 'rm', spelled)
+    assert ('run', ('rm', '-f', appmod.READSB_DEFAULT)) in fake_host.calls
 
 
 def test_unprivileged_write_outside_data_dir_raises_when_refused(monkeypatch):

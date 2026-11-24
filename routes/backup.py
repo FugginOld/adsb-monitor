@@ -98,7 +98,8 @@ def api_restore() -> Any:
                     # atomic, and the file being replaced is kept as <dest>.adsb-monitor.bak
                     app.HOST.write_bytes(dest, data, backup=True)
                 except PermissionError as e:   # refused by the privileged gateway
-                    skipped.append(f'{name}: {e}')
+                    logger.warning('config restore skipped %s: %s', name, e)
+                    skipped.append(f'{name}: refused (see the monitor log)')
                     continue
                 restored.append(name)
     except zipfile.BadZipFile:
