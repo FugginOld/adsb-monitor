@@ -39,7 +39,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ign
 # at install time) and fall back to sane defaults when unset.
 # ─────────────────────────────────────────────────────────────────────────────
 
-APP_VERSION    = '1.1.0'  # bump alongside CHANGELOG.md
+APP_VERSION    = '1.1.1'  # bump alongside CHANGELOG.md
 SERVICE_DATA_DIR = '/var/lib/adsb-monitor'
 DATA_DIR: str = (os.environ.get('ADSB_MONITOR_DATA')
                  or (SERVICE_DATA_DIR if os.path.isdir(SERVICE_DATA_DIR) else os.path.dirname(os.path.abspath(__file__))))

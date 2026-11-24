@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-23
+
 ### Fixed
 - Timeline: with a long "What changed" list the chart box shrank to 120 px and
   the charts spilled over the list. The chart now keeps its full height.
@@ -15,6 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   their neighbours (a label that won't fit is left out), label spacing uses the
   measured text width, and panel titles, gain-step and threshold labels are drawn
   above the lines with a halo so they stay readable.
+- Browser tests: seeding timeline data faked the clock for the whole process, so
+  the test server could reject the login cookie mid-test (failed on CI only).
+  Only `system/db.py` gets the fake clock now.
 
 ## [1.1.0] - 2026-11-22
 
