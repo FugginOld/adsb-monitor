@@ -180,9 +180,12 @@ function timelineSvg(rows, width) {
     .sort((a, b) => a.ts - b.ts).forEach(c => {
       const cx = x(c.ts), step = `${c.old}→${c.new}`;
       svg += `<line class="tl-marker${c.level === 'warn' ? ' warn' : ''}" x1="${cx}" x2="${cx}" y1="${g.top - 4}" y2="${panelsBottom}"/>`;
-      if (cx + 3 < labelRight + TL_LABEL_PAD) return;
-      labelRight = cx + 3 + tlTextW(step);
-      overlay += `<text class="tl-marker-label" x="${cx + 3}" y="${g.top + 9}">${esc(step)}</text>`;
+      // right of its line, or left of it when it would run off the chart's edge
+      const w = tlTextW(step);
+      const lx = cx + 3 + w > g.left + g.plotW ? cx - 3 - w : cx + 3;
+      if (lx < labelRight + TL_LABEL_PAD) return;
+      labelRight = lx + w;
+      overlay += `<text class="tl-marker-label" x="${lx}" y="${g.top + 9}">${esc(step)}</text>`;
     });
 
   svg += overlay;
