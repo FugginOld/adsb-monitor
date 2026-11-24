@@ -126,13 +126,24 @@ def test_labels_from_feeders_ini_are_escaped(page, station):
     assert page.problems == []
 
 
+def set_db_clock(ts):
+    """Make system/db.py (only) stamp rows at `ts`; None restores the real clock.
+
+    Patching `db.time.time` would change time.time for the whole process: the
+    test server would then see the login cookie as issued in the future, drop
+    the session, and the page would fall back to /login mid-test."""
+    import time as real
+    import types
+    from system import db
+    db.time = real if ts is None else types.SimpleNamespace(time=lambda: ts)
+
+
 def seed_timeline(hours=24):
     """24 h of plausible samples with two gain steps and a few other changes."""
     import math
     import time as _t
     from system import db
     now = _t.time()
-    real_time = db.time.time
     try:
         for i in range(int(hours * 3600 / 300)):
             ts = now - hours * 3600 + i * 300
@@ -140,7 +151,7 @@ def seed_timeline(hours=24):
             gain = 15.0 if i < 120 else 13.0 if i < 230 else 14.0
             sig = {'strong_pct': max(0.2, 6.5 - (15 - gain) * 2.2 + day), 'gain': gain,
                    'snr': 12.0, 'noise': 37.0}
-            db.time.time = lambda ts=ts: ts
+            set_db_clock(ts)
             db.record_metrics(int(40 + 80 * day), int(300 + 1500 * day), int(140 + 50 * day), sig)
             if i == 120:
                 db.record_gain_change('15', '13', 'auto-tune: 6.5% strong signals > 5% — lowering gain 15 → 13')
@@ -152,7 +163,7 @@ def seed_timeline(hours=24):
             if i == 260:
                 db.record_dataflow_event('fr24feed', 'stale', 'FR24 link disconnected')
     finally:
-        db.time.time = real_time
+        set_db_clock(None)
 
 
 def test_timeline_view(page, station):
@@ -196,17 +207,17 @@ def test_timeline_busy_night_keeps_chart_and_labels_apart(page, station):
     import time as _t
     from system import db
     seed_timeline()
-    now, real_time = _t.time(), db.time.time
+    now = _t.time()
     try:
         gains = [13, 14, 15, 16, 15, 14, 13, 14, 15, 16, 15, 14, 15, 14, 15, 14, 13]
         for i, (old, new) in enumerate(zip(gains, gains[1:])):
             ts = now - 18 * 3600 + i * 900
-            db.time.time = lambda ts=ts: ts
+            set_db_clock(ts)
             db.record_gain_change(str(old), str(new), f'auto-tune: lowering/raising gain {old} → {new}')
-            db.time.time = lambda ts=ts + 30: ts
+            set_db_clock(ts + 30)
             db.record_change('restart', 'airspy_adsb', 'airspy_adsb restarted', ref=f'busy-{i}')
     finally:
-        db.time.time = real_time
+        set_db_clock(None)
     page.click('#btn-timeline')
     expect(page.locator('#tl-chart .tl-marker')).to_have_count(18)
     assert page.locator('#tl-changes .tl-change').count() > 30
